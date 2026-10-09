@@ -8,6 +8,9 @@ Stan na commit `542cde3` (2026-10-09). Przejrzany cały kod: `SDCardOrganizerCor
 > uruchamiany. Punkty oznaczone *(do potwierdzenia na Macu)* wynikają z wiedzy o zachowaniu
 > macOS/SwiftUI i warto je sprawdzić ręcznie.
 
+> **Status poprawek:** B1, B2, B3 i B4 są naprawione (zob. historię gałęzi
+> `claude/intelligent-keller-legdgb`). Pozostałe punkty czekają na realizację.
+
 Priorytety: 🔴 krytyczne (utrata danych / crash / zablokowany główny scenariusz),
 🟠 wysokie, 🟡 średnie, ⚪ niskie.
 
@@ -15,7 +18,7 @@ Priorytety: 🔴 krytyczne (utrata danych / crash / zablokowany główny scenari
 
 ## 1. Backend — błędy
 
-### 🔴 B1. Powtórne zgranie do tego samego projektu tego samego dnia kończy się błędem (gdy jest szablon `.drp`)
+### ✅ 🔴 B1. Powtórne zgranie do tego samego projektu tego samego dnia kończy się błędem (gdy jest szablon `.drp`)
 `ProjectBuilder.swift:51`. `FileManager.copyItem` rzuca błąd, gdy plik docelowy już istnieje.
 Scenariusz: zgrywasz kartę A, nagrywasz dalej, zgrywasz jeszcze raz do projektu o tej samej
 nazwie. Folder `2026-10-09_Nazwa` już istnieje, `.drp` też, więc `build()` rzuca wyjątek i
@@ -23,7 +26,7 @@ nazwie. Folder `2026-10-09_Nazwa` już istnieje, `.drp` też, więc `build()` rz
 **Naprawa:** jeśli `.drp` istnieje, pomiń kopiowanie i nie nadpisuj go. Manifest aktualizuj,
 nie zastępuj (teraz za każdym razem nadpisuje się `createdAt`).
 
-### 🔴 B2. Błąd jednego pliku przerywa całe zgrywanie, a raport błędów nigdy nie jest wypełniany
+### ✅ 🔴 B2. Błąd jednego pliku przerywa całe zgrywanie, a raport błędów nigdy nie jest wypełniany
 `CopyService.swift:85` i `:90` używają `try copyFile(...)` bez `do/catch` w pętli.
 Uszkodzony klip albo chwilowy błąd odczytu karty kończy całą sesję. Pozostałe pliki i
 pozostałe karty nie są kopiowane, a wpis w historii nie powstaje. `report.failed`
@@ -36,7 +39,7 @@ ponownym zgraniu ma on inny rozmiar, więc trafia do kopii jako `nazwa_1.ext`, a
 Kopiuj do pliku tymczasowego (`.nazwa.ext.part`) i rób `rename` dopiero po sukcesie. W UI
 pokaż listę błędów.
 
-### 🔴 B3. Brak weryfikacji integralności skopiowanych plików
+### ✅ 🔴 B3. Brak weryfikacji integralności skopiowanych plików
 Opcja „Weryfikuj checksum (SHA-256)” działa **tylko przy wykrywaniu duplikatów**
 (`CopyPlanner.swift:54`). Po skopiowaniu nikt nie porównuje źródła z kopią. Dla narzędzia,
 po którym ktoś sformatuje kartę, to najważniejsza brakująca funkcja. Każdy profesjonalny
@@ -45,7 +48,7 @@ offload (Hedge, ShotPut, Silverstack) robi weryfikację.
 zweryfikuj kopię. Do weryfikacji lepszy jest xxHash64 (wielokrotnie szybszy od SHA-256).
 Opcjonalnie zapisuj manifest MHL.
 
-### 🔴 B4. Starsze `settings.json` po aktualizacji aplikacji kasuje się do wartości domyślnych
+### ✅ 🔴 B4. Starsze `settings.json` po aktualizacji aplikacji kasuje się do wartości domyślnych
 `Settings.swift:4` używa syntetyzowanego `Codable`, a pola `cameraPresets`,
 `openInDaVinciResolve` i `openInLightroom` dodano później (commit `4a0390a`). Dekodowanie
 starego pliku się nie udaje, `SettingsStore.load` (`Settings.swift:83`) po cichu zwraca

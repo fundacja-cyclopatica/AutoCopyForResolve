@@ -122,6 +122,7 @@ struct SettingsView: View {
             }
 
             Section("Zaawansowane") {
+                Toggle("Weryfikuj każdą kopię sumą kontrolną SHA-256 (zalecane)", isOn: $model.settings.verifyCopies)
                 Toggle("Weryfikuj checksum (SHA-256) przy wykrywaniu duplikatów", isOn: $model.settings.verifyChecksums)
             }
         }

@@ -107,7 +107,16 @@ Tests/
 ## Uwagi
 
 - Karty exFAT/FAT32: FAT32 nie obsługuje plików > 4 GB.
-- Deduplikacja domyślnie porównuje rozmiar pliku; opcjonalnie można włączyć weryfikację
+- Każda kopia jest domyślnie weryfikowana sumą kontrolną SHA-256: karta jest czytana raz
+  (kopiowanie i liczenie sumy w jednym przebiegu), a zapisany plik jest odczytywany ponownie
+  z dysku i porównywany z oryginałem. Opcję można wyłączyć w ustawieniach (Zaawansowane).
+- Plik powstaje najpierw jako ukryty `.<nazwa>.part` i dostaje właściwą nazwę dopiero po
+  udanym skopiowaniu i weryfikacji — przerwane zgrywanie nie zostawia niepełnych plików.
+- Błąd pojedynczego pliku nie przerywa zgrywania; pliki, których nie udało się zgrać, są
+  pokazywane na karcie i liczone w historii.
+- Można wielokrotnie zgrywać do tego samego projektu tego samego dnia — istniejący plik
+  `.drp` nie jest nadpisywany.
+- Deduplikacja domyślnie porównuje rozmiar pliku; opcjonalnie można włączyć porównanie
   checksum SHA-256 (wolniejsze, ale pewniejsze).
 - Gdy dwie karty zawierają pliki o identycznych nazwach, ale różnej zawartości, aplikacja
   tworzy unikalną nazwę (`nazwa_1.ext`, `nazwa_2.ext`, …).

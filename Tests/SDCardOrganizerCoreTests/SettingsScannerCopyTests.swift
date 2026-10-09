@@ -94,7 +94,7 @@ final class CopyServiceTests: XCTestCase {
         let scanner = MediaScanner(enabledExtensions: settings.enabledExtensions)
         let files = try scanner.scan(volumeRoot: sourceVolume)
 
-        let layout = ProjectLayout(destinationRoot: destRoot.path, projectName: "Testowy Projekt")
+        let layout = try ProjectBuilder(settings: settings).build(projectName: "Testowy Projekt")
         let report = try CopyService(verifyChecksums: false).copy(files: files, to: layout)
 
         XCTAssertEqual(report.totalCopied, 1)
@@ -119,8 +119,9 @@ final class CopyServiceTests: XCTestCase {
             filesFailed: 0,
             totalBytes: 5000
         )
-        IngestHistory.append(record)
-        let loaded = IngestHistory.load()
+        let historyURL = tempDir.appendingPathComponent("history.json")
+        IngestHistory.append(record, to: historyURL)
+        let loaded = IngestHistory.load(from: historyURL)
         XCTAssertTrue(loaded.contains(where: { $0.projectName == "XCTestProject" }))
     }
 }

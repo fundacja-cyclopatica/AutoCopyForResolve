@@ -54,6 +54,11 @@ struct CardColumnView: View {
                 copyProgressSection
             }
 
+            // Ostrzeżenie o plikach, których nie udało się zgrać w ostatniej sesji
+            if !config.isCopying, let report = config.lastReport, report.totalFailed > 0 {
+                failedFilesSection(report)
+            }
+
             // Podsumowanie selekcji na dole kolumny
             cardFooter
         }
@@ -427,6 +432,30 @@ struct CardColumnView: View {
         .padding(6)
         .background(Color.black.opacity(0.4))
         .cornerRadius(6)
+    }
+
+    // MARK: – Błędy zgrywania
+
+    private func failedFilesSection(_ report: CopyReport) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(StudioTheme.accentRed)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Nie zgrano \(report.totalFailed) plików")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(StudioTheme.accentRed)
+                Text(report.failed.prefix(3).map { $0.url.lastPathComponent }.joined(separator: ", "))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Color.gray)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(6)
+        .background(StudioTheme.accentRed.opacity(0.10))
+        .cornerRadius(6)
+        .help(report.failed.map { "\($0.url.lastPathComponent): \($0.error)" }.joined(separator: "\n"))
     }
 
     // MARK: – Stopka kolumny

@@ -414,6 +414,14 @@ struct StudioSettingsModalView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Zaawansowane")
 
+            Toggle(isOn: $model.settings.verifyCopies) {
+                Text("Weryfikuj każdą kopię sumą kontrolną SHA-256 (zalecane)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.9))
+            }
+            .toggleStyle(.checkbox)
+            .tint(StudioTheme.accentCyan)
+
             Toggle(isOn: $model.settings.verifyChecksums) {
                 Text("Weryfikuj checksum (SHA-256) przy wykrywaniu duplikatów")
                     .font(.system(size: 11, weight: .medium))

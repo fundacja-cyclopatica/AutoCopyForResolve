@@ -87,8 +87,11 @@ struct SelfTest {
                 filesFailed: 0,
                 totalBytes: 1024 * 1024
             )
-            IngestHistory.append(record)
-            let loaded = IngestHistory.load()
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let historyURL = dir.appendingPathComponent("history.json")
+            IngestHistory.append(record, to: historyURL)
+            let loaded = IngestHistory.load(from: historyURL)
             return loaded.contains(where: { $0.projectName == "SampleProject" && $0.filesCopied == 5 })
         }
 
@@ -163,6 +166,97 @@ struct SelfTest {
             return FileManager.default.fileExists(atPath: layout.manifestURL().path)
                 && FileManager.default.fileExists(atPath: layout.drpFileURL().path)
                 && FileManager.default.fileExists(atPath: layout.videoDir.path)
+        }
+
+        check("Ustawienia ze starszej wersji zachowują wartości użytkownika") {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let url = dir.appendingPathComponent("settings.json")
+            let json = #"{"destinationRoot":"/Volumes/SSD","enabledExtensions":["mov"],"resolution":"3840x2160","frameRate":50,"verifyChecksums":false}"#
+            try! json.data(using: .utf8)!.write(to: url)
+            let loaded = try! SettingsStore.load(from: url)
+            return loaded.destinationRoot == "/Volumes/SSD"
+                && loaded.enabledExtensions == ["mov"]
+                && loaded.frameRate == 50
+                && loaded.cameraPresets == Settings.defaultCameraPresets
+                && loaded.verifyCopies
+        }
+
+        check("Nieczytelny plik ustawień zostaje zachowany jako kopia") {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let url = dir.appendingPathComponent("settings.json")
+            try! "to nie jest JSON".data(using: .utf8)!.write(to: url)
+            let loaded = try! SettingsStore.load(from: url)
+            let backups = (try? FileManager.default.contentsOfDirectory(atPath: dir.path))?
+                .filter { $0.contains(".unreadable-") } ?? []
+            return loaded == Settings() && backups.count == 1
+        }
+
+        check("Dogrywanie do istniejącego projektu z szablonem .drp") {
+            let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: base) }
+            let dest = base.appendingPathComponent("dest")
+            try! FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+            let template = base.appendingPathComponent("szablon.drp")
+            try! "TEMPLATE".data(using: .utf8)!.write(to: template)
+            var s = Settings()
+            s.destinationRoot = dest.path
+            s.drpTemplatePath = template.path
+            guard (try? ProjectBuilder(settings: s).build(projectName: "Wesele")) != nil,
+                  let layout = try? ProjectBuilder(settings: s).build(projectName: "Wesele") else {
+                return false
+            }
+            s.drpTemplatePath = nil
+            guard (try? ProjectBuilder(settings: s).build(projectName: "Wesele")) != nil else { return false }
+            return (try? String(contentsOf: layout.drpFileURL(), encoding: .utf8)) == "TEMPLATE"
+        }
+
+        check("Błąd jednego pliku nie przerywa zgrywania") {
+            let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: base) }
+            let card = base.appendingPathComponent("card")
+            let dest = base.appendingPathComponent("dest")
+            try! FileManager.default.createDirectory(at: card, withIntermediateDirectories: true)
+            try! FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+            let good = card.appendingPathComponent("A002.MOV")
+            try! "dobry-klip".data(using: .utf8)!.write(to: good)
+            let files = [
+                MediaFile(url: card.appendingPathComponent("A001.MOV"), category: .video, size: 10),
+                MediaFile(url: good, category: .video, size: 10)
+            ]
+            let layout = ProjectLayout(destinationRoot: dest.path, projectName: "Test")
+            let report = try! CopyService(verifyChecksums: false).copy(files: files, to: layout)
+            return report.totalFailed == 1 && report.totalCopied == 1
+                && FileManager.default.fileExists(atPath: layout.videoDir.appendingPathComponent("A002.MOV").path)
+        }
+
+        check("Weryfikacja kopii SHA-256 i zachowanie dat") {
+            let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: base) }
+            let card = base.appendingPathComponent("card")
+            let dest = base.appendingPathComponent("dest")
+            try! FileManager.default.createDirectory(at: card, withIntermediateDirectories: true)
+            try! FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+            let source = card.appendingPathComponent("C0001.MP4")
+            let content = Data((0..<200_000).map { UInt8($0 % 251) })
+            try! content.write(to: source)
+            let shotDate = Date(timeIntervalSince1970: 1_780_000_000)
+            try! FileManager.default.setAttributes([.modificationDate: shotDate], ofItemAtPath: source.path)
+
+            let files = try! MediaScanner(enabledExtensions: ["mp4"]).scan(volumeRoot: card)
+            let layout = ProjectLayout(destinationRoot: dest.path, projectName: "Test")
+            let report = try! CopyService(verifyChecksums: false, verifyCopies: true).copy(files: files, to: layout)
+            let copy = layout.videoDir.appendingPathComponent("C0001.MP4")
+            let copiedDate = (try? FileManager.default.attributesOfItem(atPath: copy.path))?[.modificationDate] as? Date
+            let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: layout.videoDir.path)) ?? [])
+                .filter { $0.hasSuffix(".part") }
+            return report.totalVerified == 1
+                && (try? Data(contentsOf: copy)) == content
+                && abs((copiedDate?.timeIntervalSince1970 ?? 0) - shotDate.timeIntervalSince1970) < 1
+                && leftovers.isEmpty
         }
 
         print("")

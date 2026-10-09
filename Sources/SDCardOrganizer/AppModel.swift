@@ -285,17 +285,20 @@ public final class AppModel: ObservableObject {
 
         let totalFilesAllCards = cardsToIngest.reduce(0) { $0 + $1.filteredFiles.count }
         var completedFilesAllCards = 0
+        let settings = self.settings
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             do {
-                let builder = ProjectBuilder(settings: self.settings)
+                let builder = ProjectBuilder(settings: settings)
                 let layout = try builder.build(projectName: name)
 
                 var totalCopiedOverall = 0
                 var totalSkippedOverall = 0
                 var totalFailedOverall = 0
+                var totalVerifiedOverall = 0
                 var totalBytesOverall: Int64 = 0
+                var allFailures: [FailedCopy] = []
 
                 for card in cardsToIngest {
                     guard let cardIdx = self.cardConfigs.firstIndex(where: { $0.volumeURL == card.volumeURL }) else { continue }
@@ -306,7 +309,10 @@ public final class AppModel: ObservableObject {
                         self.cardConfigs[cardIdx].currentFile = ""
                     }
 
-                    let service = CopyService(verifyChecksums: self.settings.verifyChecksums)
+                    let service = CopyService(
+                        verifyChecksums: settings.verifyChecksums,
+                        verifyCopies: settings.verifyCopies
+                    )
                     service.onProgress = { [weak self] fraction, fileURL in
                         DispatchQueue.main.async {
                             guard let self, let idx = self.cardConfigs.firstIndex(where: { $0.volumeURL == card.volumeURL }) else { return }
@@ -324,7 +330,9 @@ public final class AppModel: ObservableObject {
                     totalCopiedOverall += report.totalCopied
                     totalSkippedOverall += report.totalSkipped
                     totalFailedOverall += report.totalFailed
+                    totalVerifiedOverall += report.totalVerified
                     totalBytesOverall += report.totalBytesCopied
+                    allFailures += report.failed
                     completedFilesAllCards += card.filteredFiles.count
 
                     let overallFraction = totalFilesAllCards > 0 ? Double(completedFilesAllCards) / Double(totalFilesAllCards) : 1.0
@@ -353,25 +361,40 @@ public final class AppModel: ObservableObject {
                 IngestHistory.append(record)
 
                 // Uruchom aplikacje docelowe (Resolve / Lightroom)
-                if self.settings.openInDaVinciResolve {
+                if settings.openInDaVinciResolve {
                     self.launchDaVinciResolve(layout: layout)
                 }
-                if self.settings.openInLightroom {
+                if settings.openInLightroom {
                     self.launchLightroom(layout: layout)
+                }
+
+                var summary = "Zgrano \(totalCopiedOverall) plików (\(AppModel.formatBytes(totalBytesOverall))) z \(cardsToIngest.count) kart."
+                if settings.verifyCopies && totalCopiedOverall > 0 {
+                    summary += " Zweryfikowano: \(totalVerifiedOverall)."
+                }
+                if totalSkippedOverall > 0 {
+                    summary += " Pominięto duplikaty: \(totalSkippedOverall)."
+                }
+                if let firstFailure = allFailures.first {
+                    summary += " Błędy: \(totalFailedOverall) — m.in. \(firstFailure.url.lastPathComponent): \(firstFailure.error)"
                 }
 
                 DispatchQueue.main.async {
                     self.isGlobalCopying = false
                     self.overallProgress = 1.0
                     self.history = IngestHistory.load()
-                    self.setStatus(
-                        "Zgrano \(totalCopiedOverall) plików (\(AppModel.formatBytes(totalBytesOverall))) z \(cardsToIngest.count) kart.",
-                        isError: totalFailedOverall > 0
-                    )
-                    self.sendNotification(
-                        title: "Zgrywanie zakończone pomyślnie",
-                        body: "Projekt „\(name)”: zgrano \(totalCopiedOverall) plików z \(cardsToIngest.count) kart."
-                    )
+                    self.setStatus(summary, isError: totalFailedOverall > 0)
+                    if totalFailedOverall > 0 {
+                        self.sendNotification(
+                            title: "Zgrywanie zakończone z błędami",
+                            body: "Projekt „\(name)”: \(totalFailedOverall) plików nie zostało zgranych. Nie formatuj kart przed sprawdzeniem."
+                        )
+                    } else {
+                        self.sendNotification(
+                            title: "Zgrywanie zakończone pomyślnie",
+                            body: "Projekt „\(name)”: zgrano \(totalCopiedOverall) plików z \(cardsToIngest.count) kart."
+                        )
+                    }
                 }
             } catch {
                 DispatchQueue.main.async {

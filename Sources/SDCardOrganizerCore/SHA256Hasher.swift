@@ -9,7 +9,11 @@ public struct SHA256Hasher {
     public init() {}
 
     public mutating func update(_ bytes: ArraySlice<UInt8>) {
-        hasher.update(data: Data(bytes))
+        bytes.withUnsafeBytes { hasher.update(bufferPointer: $0) }
+    }
+
+    public mutating func update(_ data: Data) {
+        hasher.update(data: data)
     }
 
     public func finalize() -> String {
