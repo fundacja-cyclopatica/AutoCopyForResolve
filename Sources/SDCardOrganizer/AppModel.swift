@@ -348,11 +348,48 @@ public final class AppModel: ObservableObject {
 
     private func launchLightroom(layout: ProjectLayout) {
         let photoFolder = layout.photoDir
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        // Spróbuj otworzyć folder ze zdjęciami w Adobe Lightroom
-        process.arguments = ["-a", "Adobe Lightroom", photoFolder.path]
-        try? process.run()
+        guard FileManager.default.fileExists(atPath: photoFolder.path) else { return }
+
+        // Wyszukaj zainstalowaną wersję Adobe Lightroom (Classic lub CC)
+        let bundleCandidates = [
+            "com.adobe.LightroomClassicCC7", // Adobe Lightroom Classic
+            "com.adobe.lightroomCC",        // Adobe Lightroom (Cloud)
+            "com.adobe.Lightroom6"          // Starsze wersje Lightroom
+        ]
+
+        var appURL: URL? = nil
+        for bundleId in bundleCandidates {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+                appURL = url
+                break
+            }
+        }
+
+        if let appURL {
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.open([photoFolder], withApplicationAt: appURL, configuration: config, completionHandler: nil)
+        } else {
+            // Fallback: sprawdź typowe nazwy aplikacji przez polecenie open
+            let appNames = [
+                "Adobe Lightroom Classic",
+                "Adobe Lightroom",
+                "Lightroom Classic",
+                "Lightroom"
+            ]
+
+            for appName in appNames {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                process.arguments = ["-a", appName, photoFolder.path]
+                if (try? process.run()) != nil {
+                    process.waitUntilExit()
+                    if process.terminationStatus == 0 {
+                        break
+                    }
+                }
+            }
+        }
     }
 
     // MARK: – Zarządzanie presetami podpisów kamer
