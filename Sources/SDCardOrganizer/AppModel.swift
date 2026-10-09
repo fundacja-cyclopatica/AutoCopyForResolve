@@ -12,6 +12,8 @@ public final class AppModel: ObservableObject {
     @Published public var selectedVolume: Volume?
     @Published public var projectName: String = ""
     @Published public var scanResults: [MediaFile] = []
+    @Published public var availableDays: [DaySummary] = []
+    @Published public var selectedDays: Set<String> = []
     @Published public var isScanning: Bool = false
     @Published public var isCopying: Bool = false
     @Published public var progress: Double = 0
@@ -21,6 +23,36 @@ public final class AppModel: ObservableObject {
     @Published public var statusIsError: Bool = false
     @Published public var history: [IngestRecord] = []
     @Published public var selectedTab: Int = 0
+
+    /// Pliki wybrane do zgrania na podstawie zaznaczonych dni.
+    public var filteredFiles: [MediaFile] {
+        if selectedDays.isEmpty {
+            return scanResults
+        }
+        return scanResults.filter { selectedDays.contains($0.dayString) }
+    }
+
+    public var totalSelectedBytes: Int64 {
+        filteredFiles.reduce(0) { $0 + $1.size }
+    }
+
+    public func selectLatestDay() {
+        if let latest = availableDays.first?.dayString {
+            selectedDays = [latest]
+        }
+    }
+
+    public func selectAllDays() {
+        selectedDays = Set(availableDays.map(\.dayString))
+    }
+
+    public func toggleDay(_ dayString: String) {
+        if selectedDays.contains(dayString) {
+            selectedDays.remove(dayString)
+        } else {
+            selectedDays.insert(dayString)
+        }
+    }
 
     public let volumeMonitor = VolumeMonitor()
 
@@ -95,26 +127,38 @@ public final class AppModel: ObservableObject {
         }
         isScanning = true
         scanResults = []
+        availableDays = []
+        selectedDays = []
         statusMessage = ""
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let scanner = MediaScanner(enabledExtensions: self.settings.enabledExtensions)
             let results = (try? scanner.scan(volumeRoot: volume.url)) ?? []
+
+            let grouped = Dictionary(grouping: results, by: { $0.dayString })
+            let days = grouped.map { DaySummary(dayString: $0.key, files: $0.value) }
+                .sorted { $0.dayString > $1.dayString }
+
             DispatchQueue.main.async {
                 self.scanResults = results
+                self.availableDays = days
+                // Domyślnie zaznaczamy najnowszy dzień
+                if let latest = days.first?.dayString {
+                    self.selectedDays = [latest]
+                }
                 self.isScanning = false
                 let videoCount = results.filter { $0.category == .video }.count
                 let audioCount = results.filter { $0.category == .audio }.count
                 let photoCount = results.filter { $0.category == .photo }.count
                 self.setStatus(
-                    "Znaleziono \(results.count) plików: \(videoCount) wideo, \(audioCount) audio, \(photoCount) zdjęć.",
+                    "Znaleziono \(results.count) plików z \(days.count) dni (\(videoCount) wideo, \(audioCount) audio, \(photoCount) zdjęć).",
                     isError: false
                 )
             }
         }
     }
 
-    /// Uruchamia zgrywanie: tworzy projekt i kopiuje pliki.
+    /// Uruchamia zgrywanie: tworzy projekt i kopiuje wybrane pliki.
     public func startCopy() {
         guard let volume = selectedVolume else {
             setStatus("Nie wybrano karty SD.", isError: true)
@@ -130,6 +174,12 @@ public final class AppModel: ObservableObject {
             return
         }
 
+        let files = self.filteredFiles
+        guard !files.isEmpty else {
+            setStatus("Brak plików z wybranych dni do zgrania.", isError: true)
+            return
+        }
+
         isCopying = true
         progress = 0
         currentFile = ""
@@ -140,14 +190,6 @@ public final class AppModel: ObservableObject {
             do {
                 let builder = ProjectBuilder(settings: self.settings)
                 let layout = try builder.build(projectName: name)
-
-                let files: [MediaFile]
-                if self.scanResults.isEmpty {
-                    let scanner = MediaScanner(enabledExtensions: self.settings.enabledExtensions)
-                    files = try scanner.scan(volumeRoot: volume.url)
-                } else {
-                    files = self.scanResults
-                }
 
                 let service = CopyService(verifyChecksums: self.settings.verifyChecksums)
                 service.onProgress = { [weak self] fraction, url in

@@ -38,15 +38,47 @@ public enum MediaCategory: String, CaseIterable, Codable {
 public struct MediaFile: Hashable, Identifiable {
     public let url: URL
     public let category: MediaCategory
+    public let size: Int64
+    public let date: Date
+    public let dayString: String // format "yyyy-MM-dd"
+
     public var id: String { url.path }
 
-    public init(url: URL, category: MediaCategory) {
+    public init(url: URL, category: MediaCategory, size: Int64 = 0, date: Date = Date()) {
         self.url = url
         self.category = category
+        self.size = size
+        self.date = date
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        self.dayString = df.string(from: date)
     }
 }
 
-/// Przeszukuje nośnik źródłowy i zwraca pasujące pliki, pogrupowane wg kategorii.
+/// Podsumowanie materiałów z konkretnego dnia.
+public struct DaySummary: Identifiable, Hashable {
+    public let dayString: String // "2026-06-06"
+    public let fileCount: Int
+    public let videoCount: Int
+    public let audioCount: Int
+    public let photoCount: Int
+    public let totalBytes: Int64
+
+    public var id: String { dayString }
+
+    public init(dayString: String, files: [MediaFile]) {
+        self.dayString = dayString
+        self.fileCount = files.count
+        self.videoCount = files.filter { $0.category == .video }.count
+        self.audioCount = files.filter { $0.category == .audio }.count
+        self.photoCount = files.filter { $0.category == .photo }.count
+        self.totalBytes = files.reduce(0) { $0 + $1.size }
+    }
+}
+
+/// Przeszukuje nośnik źródłowy i zwraca pasujące pliki, pogrupowane wg kategorii i dat.
 public struct MediaScanner {
     public let filter: FileTypeFilter
 
@@ -54,14 +86,20 @@ public struct MediaScanner {
         self.filter = FileTypeFilter(enabledExtensions: enabledExtensions)
     }
 
-    /// Skanuje rekursywnie katalog źródłowy i zwraca pliki pasujące do filtra.
+    /// Skanuje rekursywnie katalog źródłowy i zwraca pliki pasujące do filtra wraz z datami i rozmiarami.
     public func scan(volumeRoot: URL) throws -> [MediaFile] {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey]
+        let keys: Set<URLResourceKey> = [
+            .isRegularFileKey,
+            .isDirectoryKey,
+            .fileSizeKey,
+            .contentModificationDateKey,
+            .creationDateKey
+        ]
         let options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles, .skipsPackageDescendants]
 
         guard let enumerator = FileManager.default.enumerator(
             at: volumeRoot,
-            includingPropertiesForKeys: keys,
+            includingPropertiesForKeys: Array(keys),
             options: options
         ) else {
             return []
@@ -69,12 +107,57 @@ public struct MediaScanner {
 
         var results: [MediaFile] = []
         for case let url as URL in enumerator {
-            guard let values = try? url.resourceValues(forKeys: Set(keys)),
+            guard let values = try? url.resourceValues(forKeys: keys),
                   values.isRegularFile == true else { continue }
             guard filter.isIncluded(url) else { continue }
             guard let category = MediaCategory.category(for: url) else { continue }
-            results.append(MediaFile(url: url, category: category))
+
+            let size = Int64(values.fileSize ?? 0)
+            let date = extractDate(from: url, resourceValues: values)
+
+            results.append(MediaFile(url: url, category: category, size: size, date: date))
         }
-        return results.sorted { $0.url.path < $1.url.path }
+        return results.sorted { $0.date < $1.date }
+    }
+
+    /// Pobiera datę z metadanych pliku lub nazwy (np. DJI_20260606..., VID_20260606...).
+    private func extractDate(from url: URL, resourceValues: URLResourceValues) -> Date {
+        if let creationDate = resourceValues.creationDate {
+            return creationDate
+        }
+        if let modDate = resourceValues.contentModificationDate {
+            return modDate
+        }
+        if let parsedFromFilename = parseDateFromFilename(url.lastPathComponent) {
+            return parsedFromFilename
+        }
+        return Date()
+    }
+
+    /// Próbuje sparsować datę z typowych nazw plików kamer (DJI_20260606132901_..., 20260606_..., 2026-06-06...).
+    private func parseDateFromFilename(_ filename: String) -> Date? {
+        let patterns = [
+            "yyyyMMdd_HHmmss",
+            "yyyyMMddHHmmss",
+            "yyyy-MM-dd_HH-mm-ss",
+            "yyyyMMdd",
+            "yyyy-MM-dd"
+        ]
+
+        let cleaned = filename.components(separatedBy: CharacterSet.alphanumerics.inverted).joined(separator: "_")
+        let parts = cleaned.components(separatedBy: "_")
+
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+
+        for part in parts {
+            for pattern in patterns {
+                df.dateFormat = pattern
+                if let date = df.date(from: part) {
+                    return date
+                }
+            }
+        }
+        return nil
     }
 }

@@ -96,60 +96,43 @@ public final class CopyService {
         (try? contentsNames(of: dir)) ?? []
     }
 
-    /// Kopiuje pojedynczy plik bez obciążania pamięci (strumieniowo).
+    /// Kopiuje pojedynczy plik z zachowaniem dat utworzenia i atrybutów.
     /// Zwraca liczbę skopiowanych bajtów.
     @discardableResult
     private func copyFile(from source: URL, to destination: URL) throws -> Int64 {
-        // Usuwamy ewentualny istniejący plik docelowy (nie powinno go być po deduplikacji).
+        // Upewnij się, że katalog docelowy istnieje
+        let parentDir = destination.deletingLastPathComponent()
+        if !fileManager.fileExists(atPath: parentDir.path) {
+            try fileManager.createDirectory(at: parentDir, withIntermediateDirectories: true)
+        }
+
+        // Usuwamy ewentualny istniejący plik docelowy
         if fileManager.fileExists(atPath: destination.path) {
             try fileManager.removeItem(at: destination)
         }
 
-        guard let input = InputStream(url: source) else {
-            throw CopyError.cannotOpenSource(source.path)
-        }
-        guard let output = OutputStream(url: destination, append: false) else {
-            throw CopyError.cannotCreateDestination(destination.path)
-        }
-
-        input.open()
-        output.open()
-        defer {
-            input.close()
-            output.close()
+        do {
+            try fileManager.copyItem(at: source, to: destination)
+        } catch {
+            throw CopyError.copyItemFailed(source: source.path, destination: destination.path, reason: error.localizedDescription)
         }
 
-        var buffer = [UInt8](repeating: 0, count: 1024 * 1024)
-        var totalWritten: Int64 = 0
-        while input.hasBytesAvailable {
-            let read = input.read(&buffer, maxLength: buffer.count)
-            if read < 0 {
-                throw CopyError.readFailed(source.path)
-            }
-            if read == 0 { break }
-            var written = 0
-            while written < read {
-                let n = output.write(&buffer[written], maxLength: read - written)
-                if n < 0 {
-                    throw CopyError.writeFailed(destination.path)
-                }
-                written += n
-            }
-            totalWritten += Int64(read)
-        }
-        return totalWritten
+        let attrs = try? fileManager.attributesOfItem(atPath: destination.path)
+        return (attrs?[.size] as? Int64) ?? 0
     }
 
     public enum CopyError: LocalizedError {
         case cannotOpenSource(String)
         case cannotCreateDestination(String)
+        case copyItemFailed(source: String, destination: String, reason: String)
         case readFailed(String)
         case writeFailed(String)
 
         public var errorDescription: String? {
             switch self {
             case .cannotOpenSource(let p): return "Nie można otworzyć pliku źródłowego: \(p)"
-            case .cannotCreateDestination(let p): return "Nie można utworzyć pliku docelowego: \(p)"
+            case .cannotCreateDestination(let p): return "Nie można utworzyć folderu docelowego: \(p)"
+            case .copyItemFailed(_, let d, let reason): return "Błąd zapisu pliku \(d): \(reason)"
             case .readFailed(let p): return "Błąd odczytu pliku: \(p)"
             case .writeFailed(let p): return "Błąd zapisu pliku: \(p)"
             }

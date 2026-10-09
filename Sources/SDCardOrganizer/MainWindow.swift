@@ -120,35 +120,74 @@ struct MainWindow: View {
     }
 
     private var scanResultsSection: some View {
-        GroupBox("Zawartość karty") {
-            VStack(alignment: .leading, spacing: 4) {
-                let videos = model.scanResults.filter { $0.category == .video }
-                let audios = model.scanResults.filter { $0.category == .audio }
-                let photos = model.scanResults.filter { $0.category == .photo }
+        GroupBox("Wybór materiałów do zgrania") {
+            VStack(alignment: .leading, spacing: 10) {
+                // Szybki wybór dni (guzik z jednego dnia + wszystkie dni)
+                if model.availableDays.count > 1 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Text("Zakres dni:").font(.subheadline.bold())
+
+                            if let latest = model.availableDays.first {
+                                Button {
+                                    model.selectLatestDay()
+                                } label: {
+                                    Label("Tylko najnowszy dzień (\(latest.dayString))", systemImage: "calendar.badge.clock")
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(model.selectedDays == [latest.dayString] ? .accentColor : nil)
+                                .controlSize(.small)
+                            }
+
+                            Button {
+                                model.selectAllDays()
+                            } label: {
+                                Text("Wszystkie dni (\(model.availableDays.count))")
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(model.selectedDays.count == model.availableDays.count ? .accentColor : nil)
+                            .controlSize(.small)
+                        }
+
+                        // Lista dni do wyboru wielokrotnego
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(model.availableDays) { day in
+                                Toggle(isOn: Binding(
+                                    get: { model.selectedDays.contains(day.dayString) },
+                                    set: { _ in model.toggleDay(day.dayString) }
+                                )) {
+                                    HStack(spacing: 8) {
+                                        Text(day.dayString).bold()
+                                        Text("(\(day.videoCount) wideo, \(day.photoCount) zdjęć, \(day.audioCount) audio – \(AppModel.formatBytes(day.totalBytes)))")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .toggleStyle(.checkbox)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    Divider()
+                }
+
+                // Podsumowanie wybranych plików
+                let videos = model.filteredFiles.filter { $0.category == .video }
+                let audios = model.filteredFiles.filter { $0.category == .audio }
+                let photos = model.filteredFiles.filter { $0.category == .photo }
 
                 HStack(spacing: 16) {
                     Label("\(videos.count) wideo", systemImage: "film")
-                    Label("\(audios.count) audio", systemImage: "waveform")
                     Label("\(photos.count) zdjęć", systemImage: "photo")
+                    Label("\(audios.count) audio", systemImage: "waveform")
+                    Spacer()
+                    Text("Razem: \(model.filteredFiles.count) plików (\(AppModel.formatBytes(model.totalSelectedBytes)))")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(model.filteredFiles.isEmpty ? .red : .primary)
                 }
                 .font(.callout)
-
-                if model.scanResults.count <= 20 {
-                    ForEach(model.scanResults) { file in
-                        HStack {
-                            Image(systemName: iconName(for: file.category))
-                                .foregroundStyle(iconColor(for: file.category))
-                                .frame(width: 16)
-                            Text(file.url.lastPathComponent)
-                                .font(.caption)
-                                .lineLimit(1)
-                        }
-                    }
-                } else {
-                    Text("(\(model.scanResults.count) plików łącznie)")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
             }
+            .padding(.vertical, 4)
         }
     }
 
@@ -188,13 +227,13 @@ struct MainWindow: View {
         } label: {
             HStack {
                 Image(systemName: "square.and.arrow.down.fill")
-                Text("Zgraj")
+                Text(model.filteredFiles.isEmpty ? "Wybierz materiały do zgrania" : "Zgraj (\(model.filteredFiles.count) plików)")
             }
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(model.isCopying || model.selectedVolume == nil || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty)
+        .disabled(model.isCopying || model.selectedVolume == nil || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty || model.filteredFiles.isEmpty)
     }
 
     private var progressSection: some View {
