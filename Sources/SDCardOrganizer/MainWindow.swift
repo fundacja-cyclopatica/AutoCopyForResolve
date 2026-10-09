@@ -513,7 +513,7 @@ struct MainWindow: View {
                                         .font(.headline)
                                         .foregroundStyle(Color.white)
                                     Spacer()
-                                    Text(record.date, style: .date)
+                                    Text(formatHistoryDate(record.date))
                                         .font(.caption)
                                         .foregroundStyle(Color.gray)
                                 }
@@ -556,6 +556,22 @@ struct MainWindow: View {
         panel.message = "Wybierz dysk/folder docelowy"
         if panel.runModal() == .OK, let url = panel.url {
             model.settings.destinationRoot = url.path
+        }
+    }
+
+    private func formatHistoryDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "HH:mm"
+
+        if calendar.isDateInToday(date) {
+            return "Dzisiaj, \(timeFormatter.string(from: date))"
+        } else if calendar.isDateInYesterday(date) {
+            return "Wczoraj, \(timeFormatter.string(from: date))"
+        } else {
+            let df = DateFormatter()
+            df.dateFormat = "dd.MM.yyyy, HH:mm"
+            return df.string(from: date)
         }
     }
 }

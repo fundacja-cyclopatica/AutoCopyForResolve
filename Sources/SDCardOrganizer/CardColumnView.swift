@@ -378,7 +378,7 @@ struct CardColumnView: View {
                                 .padding(.top, 1)
 
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(day.dayString)
+                                    Text(day.displayText)
                                         .font(.system(size: 11, weight: isDaySelected ? .bold : .medium))
                                         .foregroundStyle(isDaySelected ? Color.white : Color.gray.opacity(0.8))
 

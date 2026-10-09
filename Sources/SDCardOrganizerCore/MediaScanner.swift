@@ -43,7 +43,7 @@ public struct MediaFile: Hashable, Identifiable {
     public let category: MediaCategory
     public let size: Int64
     public let date: Date
-    public let dayString: String // format "yyyy-MM-dd"
+    public let dayString: String // format "yyyy-MM-dd" — klucz wewnętrzny (sortowanie/grupowanie)
 
     public var id: String { url.path }
 
@@ -62,7 +62,7 @@ public struct MediaFile: Hashable, Identifiable {
 
 /// Podsumowanie materiałów z konkretnego dnia.
 public struct DaySummary: Identifiable, Hashable {
-    public let dayString: String // "2026-06-06"
+    public let dayString: String // klucz wewnętrzny "yyyy-MM-dd"
     public let fileCount: Int
     public let videoCount: Int
     public let audioCount: Int
@@ -78,6 +78,24 @@ public struct DaySummary: Identifiable, Hashable {
         self.audioCount = files.filter { $0.category == .audio }.count
         self.photoCount = files.filter { $0.category == .photo }.count
         self.totalBytes = files.reduce(0) { $0 + $1.size }
+    }
+
+    /// Przyjazny tekst daty do wyświetlenia: "Dzisiaj" / "Wczoraj" / "08.10.2026".
+    public var displayText: String {
+        let calendar = Calendar.current
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+
+        guard let dayDate = df.date(from: dayString) else { return dayString }
+
+        if calendar.isDateInToday(dayDate) { return "Dzisiaj" }
+        if calendar.isDateInYesterday(dayDate) { return "Wczoraj" }
+
+        let outFormatter = DateFormatter()
+        outFormatter.dateFormat = "dd.MM.yyyy"
+        outFormatter.locale = Locale(identifier: "pl_PL")
+        return outFormatter.string(from: dayDate)
     }
 }
 

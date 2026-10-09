@@ -92,6 +92,24 @@ struct SelfTest {
             return loaded.contains(where: { $0.projectName == "SampleProject" && $0.filesCopied == 5 })
         }
 
+        check("DaySummary formatuje daty (Dzisiaj/Wczoraj/dd.MM.yyyy)") {
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+            df.locale = Locale(identifier: "en_US_POSIX")
+
+            let todayString = df.string(from: Date())
+            let yesterdayString = df.string(from: Date().addingTimeInterval(-86400))
+            let oldDateString = "2024-05-14"
+
+            let summaryToday = DaySummary(dayString: todayString, files: [])
+            let summaryYesterday = DaySummary(dayString: yesterdayString, files: [])
+            let summaryOld = DaySummary(dayString: oldDateString, files: [])
+
+            return summaryToday.displayText == "Dzisiaj"
+                && summaryYesterday.displayText == "Wczoraj"
+                && summaryOld.displayText == "14.05.2024"
+        }
+
         check("CardIngestConfig zarządza dniami i selekcją") {
             var config = CardIngestConfig(
                 volumeURL: URL(fileURLWithPath: "/Volumes/Card1"),
