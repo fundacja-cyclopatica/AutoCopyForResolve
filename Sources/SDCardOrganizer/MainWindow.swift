@@ -48,9 +48,6 @@ struct MainWindow: View {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             model.isSettingsPanelOpen = false
                         }
-                    },
-                    onOpenFullSettings: {
-                        openSettings()
                     }
                 )
                 .padding(.top, 46)
@@ -582,14 +579,6 @@ struct MainWindow: View {
         panel.message = "Wybierz dysk/folder docelowy"
         if panel.runModal() == .OK, let url = panel.url {
             model.settings.destinationRoot = url.path
-        }
-    }
-
-    private func openSettings() {
-        if #available(macOS 14.0, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
         }
     }
 }
