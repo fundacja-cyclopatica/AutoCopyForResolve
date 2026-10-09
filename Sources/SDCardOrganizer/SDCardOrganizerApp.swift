@@ -9,14 +9,14 @@ struct SDCardOrganizerApp: App {
         MenuBarExtra {
             MenuBarMenu(model: model)
         } label: {
-            if model.isCopying {
+            if model.isGlobalCopying {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                    Text("\(Int(model.progress * 100))%")
+                    Text("\(Int(model.overallProgress * 100))%")
                         .font(.caption2.monospacedDigit())
                 }
             } else {
-                Label("SD Organizer", systemImage: model.volumeMonitor.removableVolumes.isEmpty ? "externaldrive" : "externaldrive.fill.badge.checkmark")
+                Label("SD Organizer", systemImage: model.cardConfigs.isEmpty ? "externaldrive" : "externaldrive.fill.badge.checkmark")
             }
         }
 

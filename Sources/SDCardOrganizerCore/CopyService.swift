@@ -7,11 +7,22 @@ public enum CopyFileResult: Equatable {
     case failed(URL, String)
 }
 
+/// Informacja o nieudanym skopiowaniu pliku.
+public struct FailedCopy: Equatable {
+    public let url: URL
+    public let error: String
+
+    public init(url: URL, error: String) {
+        self.url = url
+        self.error = error
+    }
+}
+
 /// Raport z całego zgrywania.
-public struct CopyReport {
+public struct CopyReport: Equatable {
     public var copied: [URL] = []
     public var skipped: [URL] = []
-    public var failed: [(url: URL, error: String)] = []
+    public var failed: [FailedCopy] = []
     public var totalBytesCopied: Int64 = 0
 
     public var totalCopied: Int { copied.count }
@@ -31,8 +42,8 @@ public final class CopyService {
         self.verifyChecksums = verifyChecksums
     }
 
-    /// Kopiuje pliki do struktury projektu i zwraca raport.
-    public func copy(files: [MediaFile], to layout: ProjectLayout) throws -> CopyReport {
+    /// Kopiuje pliki do struktury projektu (z opcjonalnym podfolderem kamery) i zwraca raport.
+    public func copy(files: [MediaFile], to layout: ProjectLayout, cameraLabel: String? = nil) throws -> CopyReport {
         var report = CopyReport()
         let total = files.count
         var done = 0
@@ -43,15 +54,23 @@ public final class CopyService {
         try fileManager.createDirectory(at: layout.photoDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: layout.daVinciDir, withIntermediateDirectories: true)
 
+        let videoTarget = layout.targetDirectory(for: .video, cameraLabel: cameraLabel)
+        let audioTarget = layout.targetDirectory(for: .audio, cameraLabel: cameraLabel)
+        let photoTarget = layout.targetDirectory(for: .photo, cameraLabel: cameraLabel)
+
+        try fileManager.createDirectory(at: videoTarget, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: audioTarget, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: photoTarget, withIntermediateDirectories: true)
+
         // Zbiór nazw już zajętych w każdym katalogu — do wykrywania kolizji.
         var existingNamesByCategory: [MediaCategory: Set<String>] = [
-            .video: Set(initialNames(of: layout.videoDir)),
-            .audio: Set(initialNames(of: layout.audioDir)),
-            .photo: Set(initialNames(of: layout.photoDir))
+            .video: Set(initialNames(of: videoTarget)),
+            .audio: Set(initialNames(of: audioTarget)),
+            .photo: Set(initialNames(of: photoTarget))
         ]
 
         for file in files {
-            let destDir = directory(for: file.category, in: layout)
+            let destDir = layout.targetDirectory(for: file.category, cameraLabel: cameraLabel)
             let decision = CopyPlanner.decision(
                 source: file.url,
                 destinationDirectory: destDir,

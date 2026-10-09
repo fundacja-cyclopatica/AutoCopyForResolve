@@ -61,6 +61,22 @@ public struct ProjectLayout {
         try fm.createDirectory(at: daVinciDir, withIntermediateDirectories: true)
     }
 
+    /// Zwraca katalog docelowy dla danej kategorii, opcjonalnie z podfolderem kamery/zastosowania.
+    public func targetDirectory(for category: MediaCategory, cameraLabel: String? = nil) -> URL {
+        let baseDir: URL
+        switch category {
+        case .video: baseDir = videoDir
+        case .audio: baseDir = audioDir
+        case .photo: baseDir = photoDir
+        }
+
+        guard let label = cameraLabel, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return baseDir
+        }
+        let safeLabel = ProjectLayout.sanitize(label)
+        return baseDir.appendingPathComponent(safeLabel, isDirectory: true)
+    }
+
     /// Ścieżka pliku projektu DaVinci Resolve.
     public func drpFileURL() -> URL {
         let df = DateFormatter()

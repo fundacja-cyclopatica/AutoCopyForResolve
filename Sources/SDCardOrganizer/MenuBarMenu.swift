@@ -12,45 +12,47 @@ struct MenuBarMenu: View {
                 Text("SD Card Organizer")
                     .font(.headline)
                 Spacer()
-                if model.isCopying {
+                if model.isGlobalCopying {
                     ProgressView().controlSize(.small)
                 }
             }
 
             Divider()
 
-            if model.isCopying {
+            if model.isGlobalCopying {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Zgrywanie w toku: \(Int(model.progress * 100))%")
+                    Text("Zgrywanie w toku: \(Int(model.overallProgress * 100))%")
                         .font(.subheadline.bold())
-                    ProgressView(value: model.progress)
-                    Text(model.currentFile)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    ProgressView(value: model.overallProgress)
                 }
                 .padding(.vertical, 2)
                 Divider()
             }
 
-            if model.volumeMonitor.removableVolumes.isEmpty {
+            if model.cardConfigs.isEmpty {
                 Label("Brak podłączonej karty SD", systemImage: "sdcard")
                     .foregroundStyle(.secondary)
                     .font(.callout)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Wykryte karty:").font(.caption).foregroundStyle(.secondary)
-                    Picker("Karta:", selection: $model.selectedVolume) {
-                        ForEach(model.volumeMonitor.removableVolumes) { volume in
-                            Text(volume.name).tag(Volume?.some(volume))
+                    Text("Wykryte karty (\(model.cardConfigs.count)):").font(.caption).foregroundStyle(.secondary)
+                    ForEach(model.cardConfigs) { config in
+                        HStack {
+                            Image(systemName: "sdcard.fill")
+                                .font(.caption)
+                                .foregroundStyle(config.isEnabled ? Color.accentColor : Color.secondary)
+                            Text("\(config.cameraLabel.isEmpty ? config.volumeName : config.cameraLabel) (\(config.volumeName))")
+                                .font(.caption)
+                                .lineLimit(1)
+                            Spacer()
+                            if config.isCopying {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Text("\(config.filteredFiles.count) plików")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                    }
-                    .frame(width: 220)
-
-                    if !model.scanResults.isEmpty && !model.isCopying {
-                        Text("\(model.scanResults.count) plików gotowych do zgrania")
-                            .font(.caption2)
-                            .foregroundStyle(.green)
                     }
                 }
             }

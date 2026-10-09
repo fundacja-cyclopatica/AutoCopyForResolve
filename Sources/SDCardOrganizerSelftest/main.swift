@@ -92,6 +92,39 @@ struct SelfTest {
             return loaded.contains(where: { $0.projectName == "SampleProject" && $0.filesCopied == 5 })
         }
 
+        check("CardIngestConfig zarządza dniami i selekcją") {
+            var config = CardIngestConfig(
+                volumeURL: URL(fileURLWithPath: "/Volumes/Card1"),
+                volumeName: "Card1",
+                cameraLabel: "Kamera A"
+            )
+            let file1 = MediaFile(url: URL(fileURLWithPath: "/Volumes/Card1/clip1.mov"), category: .video, size: 100, date: Date(timeIntervalSince1970: 1000))
+            let file2 = MediaFile(url: URL(fileURLWithPath: "/Volumes/Card1/clip2.mov"), category: .video, size: 200, date: Date(timeIntervalSince1970: 1000000))
+            config.setScanResults([file1, file2])
+            let filtered = config.filteredFiles
+            return config.availableDays.count > 0 && !filtered.isEmpty && config.cameraLabel == "Kamera A"
+        }
+
+        check("CopyService obsługuje podfoldery kamer") {
+            let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: base) }
+            let card = base.appendingPathComponent("card")
+            let dest = base.appendingPathComponent("dest")
+            try! FileManager.default.createDirectory(at: card, withIntermediateDirectories: true)
+            try! FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+            let testData = "camera-a-clip".data(using: .utf8)!
+            try! testData.write(to: card.appendingPathComponent("A002.MOV"))
+
+            var s = Settings()
+            s.destinationRoot = dest.path
+            let files = try! MediaScanner(enabledExtensions: ["mov"]).scan(volumeRoot: card)
+            let layout = ProjectLayout(destinationRoot: dest.path, projectName: "MultiCam")
+            let report = try! CopyService(verifyChecksums: false).copy(files: files, to: layout, cameraLabel: "Kamera A")
+            let cameraFolder = layout.videoDir.appendingPathComponent("Kamera A", isDirectory: true)
+            let copiedOK = FileManager.default.fileExists(atPath: cameraFolder.appendingPathComponent("A002.MOV").path)
+            return report.totalCopied == 1 && copiedOK
+        }
+
         check("ProjectBuilder tworzy katalogi, manifest i .drp") {
             let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: base) }

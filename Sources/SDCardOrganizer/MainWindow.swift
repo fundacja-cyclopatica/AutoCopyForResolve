@@ -1,14 +1,14 @@
 import SwiftUI
 import SDCardOrganizerCore
 
-/// Główne okno aplikacji — wybór karty, nazwa projektu, skanowanie i zgrywanie.
+/// Główne okno aplikacji — widok kolumnowy dla kart SD (Apple Design).
 struct MainWindow: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
         TabView(selection: $model.selectedTab) {
             ingestTab
-                .tabItem { Label("Zgraj", systemImage: "square.and.arrow.down") }
+                .tabItem { Label("Zgraj materiały", systemImage: "square.and.arrow.down") }
                 .tag(0)
             historyTab
                 .tabItem { Label("Historia", systemImage: "clock") }
@@ -17,285 +17,291 @@ struct MainWindow: View {
         .padding(16)
     }
 
-    // MARK: – Tab: Zgrywanie
+    // MARK: – Tab: Zgrywanie z wielu kart
 
     private var ingestTab: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             header
+
+            // Pasek konfiguracji projektu i dysku docelowego
+            projectConfigBar
 
             Divider()
 
-            cardSection
+            // Główna strefa kart (kolumny obok siebie, do 4 kart)
+            cardsContentArea
 
-            if !model.scanResults.isEmpty {
-                scanResultsSection
+            Spacer(minLength: 4)
+
+            // Pasek postępu globalnego (gdy zgrywanie w toku)
+            if model.isGlobalCopying {
+                globalProgressSection
             }
 
-            projectSection
-
-            actionSection
-
-            if model.isCopying {
-                progressSection
+            // Komunikat statusu
+            if !model.statusMessage.isEmpty {
+                statusBanner
             }
 
-            if let report = model.lastReport {
-                reportSection(report)
-            }
-
-            statusText
-
-            Spacer(minLength: 0)
+            // Dolny pasek akcji z podsumowaniem i przyciskiem Zgraj
+            bottomActionBar
         }
     }
 
+    // MARK: – Nagłówek okna
+
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading) {
-                Text("SD Card Organizer").font(.title.bold())
-                Text("Zgraj materiały z karty SD i przygotuj projekt DaVinci Resolve")
-                    .font(.subheadline)
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("SD Card Organizer")
+                    .font(.title2.bold())
+                Text("Zgrywaj materiały z wielu kamer i twórz projekt DaVinci Resolve")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Ustawienia…") {
-                openSettings()
+
+            HStack(spacing: 8) {
+                Button {
+                    model.scanAllCards()
+                } label: {
+                    Label("Skanuj karty", systemImage: "arrow.clockwise")
+                }
+                .controlSize(.small)
+                .disabled(model.cardConfigs.isEmpty || model.isGlobalCopying)
+
+                Button {
+                    openSettings()
+                } label: {
+                    Label("Ustawienia", systemImage: "gear")
+                }
+                .controlSize(.small)
             }
         }
     }
 
-    private var cardSection: some View {
-        GroupBox("Karta SD") {
-            VStack(alignment: .leading, spacing: 8) {
-                if model.volumeMonitor.removableVolumes.isEmpty {
-                    HStack {
-                        Image(systemName: "sdcard")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                        Text("Nie wykryto karty SD. Włóż kartę do czytnika.")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-                } else {
-                    Picker("Karta:", selection: $model.selectedVolume) {
-                        ForEach(model.volumeMonitor.removableVolumes) { volume in
-                            Text(volumeDisplayName(volume)).tag(Volume?.some(volume))
-                        }
-                    }
-                    if let vol = model.selectedVolume, let avail = vol.availableCapacity, let total = vol.totalCapacity {
-                        HStack(spacing: 12) {
-                            ProgressView(value: Double(total - avail), total: Double(total))
-                                .frame(width: 100)
-                            Text("\(AppModel.formatBytes(Int64(avail))) wolne z \(AppModel.formatBytes(Int64(total)))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                HStack {
-                    Button {
-                        model.scanSelectedVolume()
-                    } label: {
-                        if model.isScanning {
-                            HStack(spacing: 4) {
-                                ProgressView().controlSize(.small)
-                                Text("Skanowanie…")
-                            }
-                        } else {
-                            Label("Skanuj kartę", systemImage: "magnifyingglass")
-                        }
-                    }
-                    .disabled(model.selectedVolume == nil || model.isScanning)
+    // MARK: – Pasek projektu i dysku
 
-                    Button {
-                        model.volumeMonitor.refresh()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .help("Odśwież listę kart")
-                }
-            }
-        }
-    }
-
-    private var scanResultsSection: some View {
-        GroupBox("Wybór materiałów do zgrania") {
-            VStack(alignment: .leading, spacing: 10) {
-                // Szybki wybór dni (guzik z jednego dnia + wszystkie dni)
-                if model.availableDays.count > 1 {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Text("Zakres dni:").font(.subheadline.bold())
-
-                            if let latest = model.availableDays.first {
-                                Button {
-                                    model.selectLatestDay()
-                                } label: {
-                                    Label("Tylko najnowszy dzień (\(latest.dayString))", systemImage: "calendar.badge.clock")
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(model.selectedDays == [latest.dayString] ? .accentColor : nil)
-                                .controlSize(.small)
-                            }
-
-                            Button {
-                                model.selectAllDays()
-                            } label: {
-                                Text("Wszystkie dni (\(model.availableDays.count))")
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(model.selectedDays.count == model.availableDays.count ? .accentColor : nil)
-                            .controlSize(.small)
-                        }
-
-                        // Lista dni do wyboru wielokrotnego
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(model.availableDays) { day in
-                                Toggle(isOn: Binding(
-                                    get: { model.selectedDays.contains(day.dayString) },
-                                    set: { _ in model.toggleDay(day.dayString) }
-                                )) {
-                                    HStack(spacing: 8) {
-                                        Text(day.dayString).bold()
-                                        Text("(\(day.videoCount) wideo, \(day.photoCount) zdjęć, \(day.audioCount) audio – \(AppModel.formatBytes(day.totalBytes)))")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .toggleStyle(.checkbox)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                    Divider()
-                }
-
-                // Podsumowanie wybranych plików
-                let videos = model.filteredFiles.filter { $0.category == .video }
-                let audios = model.filteredFiles.filter { $0.category == .audio }
-                let photos = model.filteredFiles.filter { $0.category == .photo }
-
-                HStack(spacing: 16) {
-                    Label("\(videos.count) wideo", systemImage: "film")
-                    Label("\(photos.count) zdjęć", systemImage: "photo")
-                    Label("\(audios.count) audio", systemImage: "waveform")
-                    Spacer()
-                    Text("Razem: \(model.filteredFiles.count) plików (\(AppModel.formatBytes(model.totalSelectedBytes)))")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(model.filteredFiles.isEmpty ? .red : .primary)
-                }
-                .font(.callout)
-            }
-            .padding(.vertical, 4)
-        }
-    }
-
-    private var projectSection: some View {
-        GroupBox("Projekt") {
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("Nazwa projektu", text: $model.projectName)
+    private var projectConfigBar: some View {
+        HStack(spacing: 16) {
+            // Nazwa projektu
+            HStack(spacing: 8) {
+                Label("Projekt:", systemImage: "folder.badge.plus")
+                    .font(.subheadline.bold())
+                TextField("np. Trek Domane x2, Wywiad A", text: $model.projectName)
                     .textFieldStyle(.roundedBorder)
-                HStack {
-                    Text("Dysk docelowy:")
-                    if model.settings.destinationRoot.isEmpty {
-                        Text("(nie ustawiono)")
-                            .foregroundStyle(.red)
-                        Button("Wybierz…") { chooseDestinationQuick() }
-                            .controlSize(.small)
-                    } else {
-                        Text(model.settings.destinationRoot)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Button {
-                            chooseDestinationQuick()
-                        } label: {
-                            Image(systemName: "folder")
-                        }
+                    .controlSize(.regular)
+            }
+            .frame(maxWidth: 360)
+
+            Divider().frame(height: 20)
+
+            // Dysk docelowy
+            HStack(spacing: 8) {
+                Label("Dysk docelowy:", systemImage: "internaldrive")
+                    .font(.subheadline.bold())
+
+                if model.settings.destinationRoot.isEmpty {
+                    Text("(nie wybrano dysku)")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    Button("Wybierz…") { chooseDestinationQuick() }
                         .controlSize(.small)
-                        .help("Zmień dysk docelowy")
-                    }
-                }
-            }
-        }
-    }
-
-    private var actionSection: some View {
-        Button {
-            model.startCopy()
-        } label: {
-            HStack {
-                Image(systemName: "square.and.arrow.down.fill")
-                Text(model.filteredFiles.isEmpty ? "Wybierz materiały do zgrania" : "Zgraj (\(model.filteredFiles.count) plików)")
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(model.isCopying || model.selectedVolume == nil || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty || model.filteredFiles.isEmpty)
-    }
-
-    private var progressSection: some View {
-        GroupBox("Zgrywanie") {
-            VStack(alignment: .leading, spacing: 6) {
-                ProgressView(value: model.progress)
-                HStack {
-                    Text(model.currentFile.isEmpty ? "Przygotowywanie…" : model.currentFile)
+                } else {
+                    Text(model.settings.destinationRoot)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Spacer()
-                    Text("\(Int(model.progress * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    Button {
+                        chooseDestinationQuick()
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .controlSize(.small)
+                    .help("Zmień dysk docelowy")
                 }
             }
+
+            Spacer()
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.6))
+        )
+    }
+
+    // MARK: – Strefa kolumn kart
+
+    @ViewBuilder
+    private var cardsContentArea: some View {
+        if model.cardConfigs.isEmpty {
+            emptyStateView
+        } else {
+            ScrollView(.horizontal, showsIndicators: true) {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(Array(model.cardConfigs.indices), id: \.self) { index in
+                        CardColumnView(
+                            config: $model.cardConfigs[index],
+                            cardIndex: index,
+                            onRescan: {
+                                model.scanCard(url: model.cardConfigs[index].volumeURL)
+                            }
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
+            }
+            .frame(minHeight: 280)
         }
     }
 
-    private func reportSection(_ report: CopyReport) -> some View {
-        GroupBox("Wynik") {
-            HStack(spacing: 16) {
-                Label("\(report.totalCopied) skopiowanych", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                Label("\(report.totalSkipped) pominiętych", systemImage: "arrow.uturn.right.circle")
-                    .foregroundStyle(.orange)
-                if report.totalFailed > 0 {
-                    Label("\(report.totalFailed) błędów", systemImage: "xmark.circle.fill")
-                        .foregroundStyle(.red)
-                }
-                Spacer()
-                Text(AppModel.formatBytes(report.totalBytesCopied))
-                    .font(.callout.monospacedDigit())
+    // MARK: – Empty State
+
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            ZStack {
+                Circle()
+                    .fill(Color.secondary.opacity(0.1))
+                    .frame(width: 72, height: 72)
+                Image(systemName: "sdcard")
+                    .font(.system(size: 36))
                     .foregroundStyle(.secondary)
             }
+
+            Text("Oczekiwanie na karty SD")
+                .font(.title3.bold())
+
+            Text("Włóż kartę SD lub micro SD do czytnika w MacBooku / Mac Studio.\nAplikacja automatycznie wykryje do 4 kart i utworzy osobną kolumnę dla każdej kamery.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 480)
+
+            Button {
+                model.volumeMonitor.refresh()
+            } label: {
+                Label("Odśwież wykrywanie kart", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .padding(.top, 4)
+
+            Spacer()
         }
+        .frame(maxWidth: .infinity, minHeight: 260)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6]))
+                .foregroundStyle(Color.secondary.opacity(0.2))
+        )
     }
 
-    private var statusText: some View {
-        Group {
-            if !model.statusMessage.isEmpty {
-                Text(model.statusMessage)
-                    .font(.callout)
-                    .foregroundStyle(model.statusIsError ? Color.red : Color.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    // MARK: – Pasek postępu globalnego
+
+    private var globalProgressSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Zgrywanie materiałów w toku…")
+                    .font(.caption.bold())
+                Spacer()
+                Text("\(Int(model.overallProgress * 100))%")
+                    .font(.caption.monospacedDigit().bold())
             }
+            ProgressView(value: model.overallProgress)
         }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accentColor.opacity(0.08))
+        )
+    }
+
+    // MARK: – Komunikat statusu
+
+    private var statusBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: model.statusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(model.statusIsError ? .red : .green)
+            Text(model.statusMessage)
+                .font(.callout)
+                .foregroundStyle(model.statusIsError ? Color.red : Color.primary)
+            Spacer()
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(model.statusIsError ? Color.red.opacity(0.1) : Color.green.opacity(0.1))
+        )
+    }
+
+    // MARK: – Dolny pasek akcji
+
+    private var bottomActionBar: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                let enabledCount = model.enabledCards.count
+                let totalFiles = model.totalFilesToCopy
+                let totalBytes = model.totalBytesToCopy
+
+                if enabledCount == 0 {
+                    Text("Zaznacz przynajmniej jedną kartę")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Wybrano: \(enabledCount) \(enabledCount == 1 ? "kartę" : "kart(y)") • \(totalFiles) plików (\(AppModel.formatBytes(totalBytes)))")
+                        .font(.subheadline.bold())
+                }
+            }
+
+            Spacer()
+
+            Button {
+                model.startBatchCopy()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.and.arrow.down.fill")
+                    Text(model.totalFilesToCopy == 0 ? "Wybierz materiały do zgrania" : "Zgraj (\(model.totalFilesToCopy) plików)")
+                }
+                .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .padding(.top, 4)
     }
 
     // MARK: – Tab: Historia
 
     private var historyTab: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Historia zgrywań").font(.title2.bold())
+            HStack {
+                Text("Historia sesji zgrywań").font(.title2.bold())
+                Spacer()
+                if !model.history.isEmpty {
+                    Button("Wyczyść historię") {
+                        IngestHistory.clear()
+                        model.history = []
+                    }
+                    .controlSize(.small)
+                }
+            }
 
             if model.history.isEmpty {
                 Spacer()
-                Text("Brak wpisów w historii.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
+                VStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.secondary)
+                    Text("Brak zapisanych sesji zgrywania.")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
                 Spacer()
             } else {
                 List(model.history) { record in
@@ -308,9 +314,9 @@ struct MainWindow: View {
                                 .foregroundStyle(.secondary)
                         }
                         HStack(spacing: 12) {
-                            Label("\(record.filesCopied)", systemImage: "doc.fill")
+                            Label("\(record.filesCopied) skopiowanych", systemImage: "doc.fill")
                             Label(AppModel.formatBytes(record.totalBytes), systemImage: "internaldrive")
-                            Text("z: \(record.sourceVolumeName)")
+                            Text("źródła: \(record.sourceVolumeName)")
                                 .foregroundStyle(.secondary)
                         }
                         .font(.caption)
@@ -320,36 +326,13 @@ struct MainWindow: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 4)
                 }
             }
         }
     }
 
     // MARK: – Pomoc
-
-    private func volumeDisplayName(_ volume: Volume) -> String {
-        if let total = volume.totalCapacity {
-            return "\(volume.name) (\(AppModel.formatBytes(Int64(total))))"
-        }
-        return volume.name
-    }
-
-    private func iconName(for category: MediaCategory) -> String {
-        switch category {
-        case .video: return "film"
-        case .audio: return "waveform"
-        case .photo: return "photo"
-        }
-    }
-
-    private func iconColor(for category: MediaCategory) -> Color {
-        switch category {
-        case .video: return .blue
-        case .audio: return .green
-        case .photo: return .orange
-        }
-    }
 
     private func chooseDestinationQuick() {
         let panel = NSOpenPanel()
