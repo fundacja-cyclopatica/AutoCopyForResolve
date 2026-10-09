@@ -6,6 +6,8 @@ import SDCardOrganizerCore
 
 /// Obserwowalny model stanu aplikacji — łączy monitor wolumenów, ustawienia i zgrywanie.
 public final class AppModel: ObservableObject {
+    public static let showMainWindowNotification = Notification.Name("SDCardOrganizer.showMainWindow")
+
     @Published public var settings: Settings {
         didSet { persistSettings() }
     }
@@ -102,6 +104,16 @@ public final class AppModel: ObservableObject {
 
         // Automatyczny skan.
         scanSelectedVolume()
+
+        // Automatycznie otwórz i wysuń okno aplikacji na pierwszy plan (pop-up)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: AppModel.showMainWindowNotification, object: nil)
+            NSApp.activate(ignoringOtherApps: true)
+            for window in NSApp.windows where window.canBecomeKey {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+            }
+        }
     }
 
     /// Wysyła powiadomienie systemowe macOS.

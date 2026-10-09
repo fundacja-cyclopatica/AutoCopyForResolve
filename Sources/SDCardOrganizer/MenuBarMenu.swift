@@ -77,6 +77,14 @@ struct MenuBarMenu: View {
             }
         }
         .padding(8)
+        .onReceive(NotificationCenter.default.publisher(for: AppModel.showMainWindowNotification)) { _ in
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+            for window in NSApp.windows where window.canBecomeKey {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+            }
+        }
     }
 
     private func openSettings() {

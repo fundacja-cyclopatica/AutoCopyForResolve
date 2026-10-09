@@ -24,6 +24,13 @@ struct SDCardOrganizerApp: App {
         WindowGroup("SD Card Organizer", id: "main") {
             MainWindow(model: model)
                 .frame(minWidth: 680, minHeight: 560)
+                .onReceive(NotificationCenter.default.publisher(for: AppModel.showMainWindowNotification)) { _ in
+                    NSApp.activate(ignoringOtherApps: true)
+                    for window in NSApp.windows where window.canBecomeKey {
+                        window.makeKeyAndOrderFront(nil)
+                        window.orderFrontRegardless()
+                    }
+                }
         }
 
         // Okno ustawień.
