@@ -15,6 +15,9 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$CONTENTS/Resources"
 
 cp "$ROOT/.build/release/SDCardOrganizer" "$MACOS_DIR/SDCardOrganizer"
+if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
+    cp "$ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
+fi
 
 cat > "$CONTENTS/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -35,6 +38,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
     <string>APPL</string>
     <key>CFBundleExecutable</key>
     <string>SDCardOrganizer</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>

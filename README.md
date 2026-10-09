@@ -36,7 +36,7 @@ na wybrany dysk oraz przygotowania struktury katalogów i projektu DaVinci Resol
 swift build
 ```
 
-## Uruchamianie
+## Uruchamianie i Instalator
 
 ```bash
 # Bezpośrednio (bez pakietu .app):
@@ -45,6 +45,9 @@ swift run SDCardOrganizer
 # Jako aplikacja .app (pełny pasek menu):
 ./Scripts/make-app.sh
 open .build/SDCardOrganizer.app
+
+# Utworzenie kompletnego instalatora dla testerów (DMG + PKG + ZIP w folderze dist/):
+./Scripts/create-installer.sh
 ```
 
 ## Testy

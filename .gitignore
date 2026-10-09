@@ -14,3 +14,7 @@ xcuserdata/
 # Build artifacts
 DerivedData/
 *.app
+dist/
+*.dmg
+*.pkg
+
