@@ -9,15 +9,18 @@ public enum MediaCategory: String, CaseIterable, Codable {
     /// Rozszerzenia (bez kropki) przypisane do każdej kategorii.
     public static func extensions(for category: MediaCategory) -> Set<String> {
         switch category {
-        case .video: return ["mov", "mp4", "mxf", "braw", "r3d", "m4v", "avi", "mkv", "mpg", "mpeg", "mts", "m2ts"]
-        case .audio: return ["wav", "mp3", "aac", "aiff", "aif", "m4a", "flac"]
-        case .photo: return ["jpg", "jpeg", "png", "tiff", "tif", "heic", "dng", "cr2", "cr3", "nef", "arw", "rw2", "orf", "raw"]
+        case .video:
+            return ["mov", "mp4", "mxf", "braw", "r3d", "m4v", "avi", "mkv", "mpg", "mpeg", "mts", "m2ts", "crm", "lrf"]
+        case .audio:
+            return ["wav", "mp3", "aac", "aiff", "aif", "m4a", "flac"]
+        case .photo:
+            return ["jpg", "jpeg", "png", "tiff", "tif", "heic", "heif", "dng", "arw", "srf", "sr2", "cr2", "cr3", "crw", "nef", "nrw", "rw2", "orf", "ori", "raf", "pef", "gpr", "raw", "rwl", "3fr", "fff", "iiq"]
         }
     }
 
     /// Kategoria dla danego pliku (na podstawie rozszerzenia).
     public static func category(for url: URL) -> MediaCategory? {
-        let ext = url.pathExtension.lowercased()
+        let ext = url.pathExtension.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         if extensions(for: .video).contains(ext) { return .video }
         if extensions(for: .audio).contains(ext) { return .audio }
         if extensions(for: .photo).contains(ext) { return .photo }
@@ -88,18 +91,19 @@ public struct MediaScanner {
 
     /// Skanuje rekursywnie katalog źródłowy i zwraca pliki pasujące do filtra wraz z datami i rozmiarami.
     public func scan(volumeRoot: URL) throws -> [MediaFile] {
-        let keys: Set<URLResourceKey> = [
+        let keys: [URLResourceKey] = [
             .isRegularFileKey,
             .isDirectoryKey,
             .fileSizeKey,
             .contentModificationDateKey,
             .creationDateKey
         ]
-        let options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles, .skipsPackageDescendants]
+        // Nie używamy .skipsPackageDescendants, ponieważ foldery kamer (np. PRIVATE / AVCHD) bywają traktowane jako pakiety
+        let options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles]
 
         guard let enumerator = FileManager.default.enumerator(
             at: volumeRoot,
-            includingPropertiesForKeys: Array(keys),
+            includingPropertiesForKeys: keys,
             options: options
         ) else {
             return []
@@ -107,29 +111,49 @@ public struct MediaScanner {
 
         var results: [MediaFile] = []
         for case let url as URL in enumerator {
-            guard let values = try? url.resourceValues(forKeys: keys),
-                  values.isRegularFile == true else { continue }
+            let ext = url.pathExtension.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !ext.isEmpty else { continue }
             guard filter.isIncluded(url) else { continue }
             guard let category = MediaCategory.category(for: url) else { continue }
 
-            let size = Int64(values.fileSize ?? 0)
-            let date = extractDate(from: url, resourceValues: values)
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else {
+                continue
+            }
 
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            let size: Int64
+            if let s = values?.fileSize {
+                size = Int64(s)
+            } else {
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+                size = (attrs?[.size] as? Int64) ?? 0
+            }
+
+            let date = extractDate(from: url, resourceValues: values)
             results.append(MediaFile(url: url, category: category, size: size, date: date))
         }
         return results.sorted { $0.date < $1.date }
     }
 
-    /// Pobiera datę z metadanych pliku lub nazwy (np. DJI_20260606..., VID_20260606...).
-    private func extractDate(from url: URL, resourceValues: URLResourceValues) -> Date {
-        if let creationDate = resourceValues.creationDate {
+    /// Pobiera datę z metadanych pliku lub nazwy (np. DSC0001..., DJI_20260606..., VID_20260606...).
+    private func extractDate(from url: URL, resourceValues: URLResourceValues?) -> Date {
+        if let creationDate = resourceValues?.creationDate {
             return creationDate
         }
-        if let modDate = resourceValues.contentModificationDate {
+        if let modDate = resourceValues?.contentModificationDate {
             return modDate
         }
         if let parsedFromFilename = parseDateFromFilename(url.lastPathComponent) {
             return parsedFromFilename
+        }
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) {
+            if let date = attrs[.modificationDate] as? Date {
+                return date
+            }
+            if let date = attrs[.creationDate] as? Date {
+                return date
+            }
         }
         return Date()
     }

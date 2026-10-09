@@ -162,6 +162,7 @@ struct MainWindow: View {
                         CardColumnView(
                             config: $model.cardConfigs[index],
                             cardIndex: index,
+                            cameraPresets: model.settings.cameraPresets,
                             onRescan: {
                                 model.scanCard(url: model.cardConfigs[index].volumeURL)
                             },
@@ -171,6 +172,9 @@ struct MainWindow: View {
                             onPromptRename: {
                                 model.renameInputText = model.cardConfigs[index].volumeName
                                 model.renamingCardURL = model.cardConfigs[index].volumeURL
+                            },
+                            onOpenSettings: {
+                                openSettings()
                             }
                         )
                     }
@@ -265,36 +269,66 @@ struct MainWindow: View {
     // MARK: – Dolny pasek akcji
 
     private var bottomActionBar: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                let enabledCount = model.enabledCards.count
-                let totalFiles = model.totalFilesToCopy
-                let totalBytes = model.totalBytesToCopy
+        VStack(spacing: 8) {
+            // Opcje uruchamiania aplikacji po zgraniu
+            HStack(spacing: 16) {
+                let hasVideos = model.enabledCards.contains { card in card.filteredFiles.contains { $0.category == .video } }
+                let hasPhotos = model.enabledCards.contains { card in card.filteredFiles.contains { $0.category == .photo } }
 
-                if enabledCount == 0 {
-                    Text("Zaznacz przynajmniej jedną kartę")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Wybrano: \(enabledCount) \(enabledCount == 1 ? "kartę" : "kart(y)") • \(totalFiles) plików (\(AppModel.formatBytes(totalBytes)))")
-                        .font(.subheadline.bold())
+                Toggle(isOn: $model.settings.openInDaVinciResolve) {
+                    Label("Otwórz w DaVinci Resolve", systemImage: "film.stack")
+                        .font(.caption)
                 }
-            }
+                .toggleStyle(.checkbox)
 
-            Spacer()
-
-            Button {
-                model.startBatchCopy()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "square.and.arrow.down.fill")
-                    Text(model.totalFilesToCopy == 0 ? "Wybierz materiały do zgrania" : "Zgraj (\(model.totalFilesToCopy) plików)")
+                Toggle(isOn: $model.settings.openInLightroom) {
+                    HStack(spacing: 4) {
+                        Label("Otwórz zdjęcia w Lightroom", systemImage: "camera.macro")
+                        if !hasVideos && hasPhotos {
+                            Text("(tylko zdjęcia)")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .font(.caption)
                 }
-                .frame(minWidth: 200)
+                .toggleStyle(.checkbox)
+
+                Spacer()
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty)
+            .padding(.horizontal, 2)
+
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    let enabledCount = model.enabledCards.count
+                    let totalFiles = model.totalFilesToCopy
+                    let totalBytes = model.totalBytesToCopy
+
+                    if enabledCount == 0 {
+                        Text("Zaznacz przynajmniej jedną kartę")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Wybrano: \(enabledCount) \(enabledCount == 1 ? "kartę" : "kart(y)") • \(totalFiles) plików (\(AppModel.formatBytes(totalBytes)))")
+                            .font(.subheadline.bold())
+                    }
+                }
+
+                Spacer()
+
+                Button {
+                    model.startBatchCopy()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.down.fill")
+                        Text(model.totalFilesToCopy == 0 ? "Wybierz materiały do zgrania" : "Zgraj (\(model.totalFilesToCopy) plików)")
+                    }
+                    .frame(minWidth: 200)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
         }
         .padding(.top, 4)
     }

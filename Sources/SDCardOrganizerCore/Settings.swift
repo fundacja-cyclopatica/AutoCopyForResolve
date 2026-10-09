@@ -2,12 +2,34 @@ import Foundation
 
 /// Trwałe ustawienia aplikacji, zapisywane jako JSON w Application Support.
 public struct Settings: Codable, Equatable {
+    /// Domyślna lista rozszerzeń
+    public static let defaultExtensions: Set<String> = [
+        // Wideo
+        "mov", "mp4", "mxf", "braw", "r3d", "m4v", "avi", "mkv", "mpg", "mpeg", "mts", "m2ts", "crm", "lrf",
+        // Zdjęcia i RAW (Sony ARW, Canon CR2/CR3, Nikon NEF, Fuji RAF, DNG itp.)
+        "jpg", "jpeg", "png", "tiff", "tif", "heic", "heif", "dng", "arw", "srf", "sr2",
+        "cr2", "cr3", "crw", "nef", "nrw", "rw2", "orf", "ori", "raf", "pef", "gpr", "raw", "rwl",
+        // Audio
+        "wav", "mp3", "aac", "aiff", "aif", "m4a", "flac"
+    ]
+
+    /// Domyślne presety podpisów kamer
+    public static let defaultCameraPresets: [String] = [
+        "Kamera A", "Kamera B", "Kamera C", "Dron", "GoPro", "Audio"
+    ]
+
     /// Ścieżka do dysku/folderu docelowego, na który zgrywane są materiały.
     public var destinationRoot: String
 
-    /// Wybrane rozszerzenia plików (bez kropki, małymi literami), np. ["mov", "mp4", "cr2", "nef"].
-    /// Specjalna wartość "*" oznacza "wszystkie pliki".
+    /// Wybrane rozszerzenia plików (bez kropki, małymi literami).
     public var enabledExtensions: Set<String>
+
+    /// Konfigurowalna lista presetów podpisów kamer ("chmurek")
+    public var cameraPresets: [String]
+
+    /// Opcje automatycznego otwierania aplikacji po zgraniu
+    public var openInDaVinciResolve: Bool
+    public var openInLightroom: Bool
 
     /// Rozdzielczość projektu DaVinci Resolve, np. "1920x1080".
     public var resolution: String
@@ -19,12 +41,14 @@ public struct Settings: Codable, Equatable {
     public var verifyChecksums: Bool
 
     /// Ścieżka do wzorcowego pliku .drp używanego jako szablon projektu.
-    /// Jeśli nil, projekt tworzy folder + manifest JSON zamiast pliku .drp.
     public var drpTemplatePath: String?
 
     public init(
         destinationRoot: String = "",
-        enabledExtensions: Set<String> = ["mov", "mp4", "mxf", "braw", "r3d", "cr2", "cr3", "nef", "arw", "dng", "jpg", "jpeg", "png", "wav", "mp3", "aac"],
+        enabledExtensions: Set<String> = Settings.defaultExtensions,
+        cameraPresets: [String] = Settings.defaultCameraPresets,
+        openInDaVinciResolve: Bool = false,
+        openInLightroom: Bool = false,
         resolution: String = "1920x1080",
         frameRate: Double = 25,
         verifyChecksums: Bool = false,
@@ -32,6 +56,9 @@ public struct Settings: Codable, Equatable {
     ) {
         self.destinationRoot = destinationRoot
         self.enabledExtensions = enabledExtensions
+        self.cameraPresets = cameraPresets
+        self.openInDaVinciResolve = openInDaVinciResolve
+        self.openInLightroom = openInLightroom
         self.resolution = resolution
         self.frameRate = frameRate
         self.verifyChecksums = verifyChecksums
@@ -53,7 +80,14 @@ public struct SettingsStore {
             return Settings()
         }
         let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(Settings.self, from: data)
+        var settings = (try? JSONDecoder().decode(Settings.self, from: data)) ?? Settings()
+        if settings.enabledExtensions.isEmpty {
+            settings.enabledExtensions = Settings.defaultExtensions
+        }
+        if settings.cameraPresets.isEmpty {
+            settings.cameraPresets = Settings.defaultCameraPresets
+        }
+        return settings
     }
 
     public static func save(_ settings: Settings, to url: URL = Settings.defaultSettingsURL()) throws {

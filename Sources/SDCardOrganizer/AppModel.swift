@@ -32,6 +32,10 @@ public final class AppModel: ObservableObject {
     @Published public var renamingCardURL: URL? = nil
     @Published public var renameInputText: String = ""
 
+    /// Zarządzanie presetami kamer
+    @Published public var newPresetInputText: String = ""
+    @Published public var isShowingPresetSheet: Bool = false
+
     public let volumeMonitor = VolumeMonitor()
 
     private let settingsURL: URL
@@ -297,6 +301,14 @@ public final class AppModel: ObservableObject {
                 )
                 IngestHistory.append(record)
 
+                // Uruchom aplikacje docelowe (Resolve / Lightroom)
+                if self.settings.openInDaVinciResolve {
+                    self.launchDaVinciResolve(layout: layout)
+                }
+                if self.settings.openInLightroom {
+                    self.launchLightroom(layout: layout)
+                }
+
                 DispatchQueue.main.async {
                     self.isGlobalCopying = false
                     self.overallProgress = 1.0
@@ -317,6 +329,49 @@ public final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: – Otwieranie DaVinci Resolve i Lightroom
+
+    private func launchDaVinciResolve(layout: ProjectLayout) {
+        let drpFile = layout.drpFileURL()
+        if FileManager.default.fileExists(atPath: drpFile.path) && (try? drpFile.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 > 0 {
+            NSWorkspace.shared.open(drpFile)
+        } else {
+            // Otwórz samą aplikację DaVinci Resolve
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = ["-a", "DaVinci Resolve"]
+            try? process.run()
+        }
+    }
+
+    private func launchLightroom(layout: ProjectLayout) {
+        let photoFolder = layout.photoDir
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        // Spróbuj otworzyć folder ze zdjęciami w Adobe Lightroom
+        process.arguments = ["-a", "Adobe Lightroom", photoFolder.path]
+        try? process.run()
+    }
+
+    // MARK: – Zarządzanie presetami podpisów kamer
+
+    public func addCameraPreset(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !settings.cameraPresets.contains(trimmed) else { return }
+        settings.cameraPresets.append(trimmed)
+    }
+
+    public func removeCameraPreset(at index: Int) {
+        guard settings.cameraPresets.indices.contains(index) else { return }
+        settings.cameraPresets.remove(at: index)
+    }
+
+    public func updateCameraPreset(at index: Int, with name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, settings.cameraPresets.indices.contains(index) else { return }
+        settings.cameraPresets[index] = trimmed
     }
 
     /// Formatuje rozmiar w bajtach na czytelny tekst.

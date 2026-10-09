@@ -5,11 +5,11 @@ import SDCardOrganizerCore
 struct CardColumnView: View {
     @Binding var config: CardIngestConfig
     let cardIndex: Int
+    let cameraPresets: [String]
     let onRescan: () -> Void
     let onEject: () -> Void
     let onPromptRename: () -> Void
-
-    private let presetLabels = ["Kamera A", "Kamera B", "Kamera C", "Dron", "GoPro", "Audio"]
+    let onOpenSettings: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -132,10 +132,10 @@ struct CardColumnView: View {
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
 
-            // Szybkie presety podpisów
+            // Szybkie presety podpisów ("chmurki")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
-                    ForEach(presetLabels, id: \.self) { preset in
+                    ForEach(cameraPresets, id: \.self) { preset in
                         Button {
                             config.cameraLabel = preset
                         } label: {
@@ -146,6 +146,16 @@ struct CardColumnView: View {
                         .controlSize(.mini)
                         .tint(config.cameraLabel == preset ? .accentColor : nil)
                     }
+
+                    Button {
+                        onOpenSettings()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .help("Zarządzaj i edytuj presety kamer w ustawieniach")
                 }
             }
         }
