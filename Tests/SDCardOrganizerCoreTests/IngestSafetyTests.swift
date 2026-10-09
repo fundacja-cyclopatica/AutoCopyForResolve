@@ -156,6 +156,51 @@ final class IngestSafetyTests: XCTestCase {
         XCTAssertTrue(leftovers.isEmpty)
     }
 
+    func testReingestAfterNameCollisionDoesNotDuplicate() throws {
+        // Dwie kamery z plikiem o tej samej nazwie, zgrywane do jednego folderu.
+        let cardA = try makeDir("cardA")
+        let cardB = try makeDir("cardB")
+        let dest = try makeDir("dest")
+        try "kamera-a".data(using: .utf8)!.write(to: cardA.appendingPathComponent("C0001.MP4"))
+        try "kamera-b-dluzszy".data(using: .utf8)!.write(to: cardB.appendingPathComponent("C0001.MP4"))
+        let filesA = try MediaScanner(enabledExtensions: ["mp4"]).scan(volumeRoot: cardA)
+        let filesB = try MediaScanner(enabledExtensions: ["mp4"]).scan(volumeRoot: cardB)
+        let layout = ProjectLayout(destinationRoot: dest.path, projectName: "Test")
+        let service = CopyService(verifyChecksums: false)
+
+        _ = try service.copy(files: filesA, to: layout)
+        let firstB = try service.copy(files: filesB, to: layout)
+        let againB = try service.copy(files: filesB, to: layout)
+        let againA = try service.copy(files: filesA, to: layout)
+
+        XCTAssertEqual(firstB.copied.map(\.lastPathComponent), ["C0001_1.MP4"])
+        XCTAssertEqual(againB.totalCopied, 0)
+        XCTAssertEqual(againB.totalSkipped, 1)
+        XCTAssertEqual(againA.totalSkipped, 1)
+        let names = try fm.contentsOfDirectory(atPath: layout.videoDir.path).filter { !$0.hasPrefix(".") }.sorted()
+        XCTAssertEqual(names, ["C0001.MP4", "C0001_1.MP4"])
+    }
+
+    func testSameNameAndSizeButDifferentDateIsNotDuplicate() throws {
+        // Różne ujęcia o stałym bitrate: ta sama nazwa i rozmiar, inna data nagrania.
+        let card = try makeDir("card")
+        let destDir = try makeDir("dest")
+        let source = card.appendingPathComponent("A001.BRAW")
+        try "AAAA".data(using: .utf8)!.write(to: source)
+        let existing = destDir.appendingPathComponent("A001.BRAW")
+        try "BBBB".data(using: .utf8)!.write(to: existing)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: existing.path)
+
+        let decision = CopyPlanner.decision(
+            source: source, destinationDirectory: destDir, verifyChecksums: false, existingNames: ["A001.BRAW"]
+        )
+
+        guard case .copy(let url) = decision else {
+            return XCTFail("Expected copy with unique name, got \(decision)")
+        }
+        XCTAssertEqual(url.lastPathComponent, "A001_1.BRAW")
+    }
+
     func testRepeatedIngestSkipsAlreadyCopiedFiles() throws {
         let card = try makeDir("card")
         let dest = try makeDir("dest")

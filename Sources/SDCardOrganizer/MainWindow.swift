@@ -295,20 +295,23 @@ struct MainWindow: View {
         ScrollView(.horizontal, showsIndicators: true) {
             HStack(alignment: .top, spacing: 14) {
                 // Wyświetl podłączone karty (do 4)
-                ForEach(Array(model.cardConfigs.indices), id: \.self) { index in
+                // Karty identyfikowane po id (nie po indeksie) — wysunięcie karty nie
+                // unieważnia bindingów pozostałych kolumn.
+                ForEach(Array(model.cardConfigs.enumerated()), id: \.element.id) { index, config in
                     CardColumnView(
-                        config: $model.cardConfigs[index],
+                        config: cardBinding(for: config),
                         cardIndex: index,
                         cameraPresets: model.settings.cameraPresets,
+                        isLocked: model.isGlobalCopying,
                         onRescan: {
-                            model.scanCard(url: model.cardConfigs[index].volumeURL)
+                            model.scanCard(url: config.volumeURL)
                         },
                         onEject: {
-                            model.ejectCard(url: model.cardConfigs[index].volumeURL)
+                            model.ejectCard(url: config.volumeURL)
                         },
                         onPromptRename: {
-                            model.renameInputText = model.cardConfigs[index].volumeName
-                            model.renamingCardURL = model.cardConfigs[index].volumeURL
+                            model.renameInputText = config.volumeName
+                            model.renamingCardURL = config.volumeURL
                         },
                         onOpenSettings: {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -319,7 +322,7 @@ struct MainWindow: View {
                 }
 
                 // Jeśli podłączono mniej niż 4 karty, wyświetl slot wolny
-                if model.cardConfigs.count < 4 {
+                if model.cardConfigs.count < AppModel.maxCards {
                     EmptyCardSlotView(onChooseFolder: {
                         model.addManualFolder()
                     })
@@ -547,6 +550,18 @@ struct MainWindow: View {
     }
 
     // MARK: – Narzędzia pomocnicze
+
+    /// Binding do karty wyszukiwanej po `id`. Gdy karta zniknie z listy, odczyt zwraca
+    /// ostatni znany stan, a zapis jest ignorowany (zamiast crasha „Index out of range”).
+    private func cardBinding(for config: CardIngestConfig) -> Binding<CardIngestConfig> {
+        Binding(
+            get: { model.cardConfigs.first(where: { $0.id == config.id }) ?? config },
+            set: { newValue in
+                guard let index = model.cardConfigs.firstIndex(where: { $0.id == config.id }) else { return }
+                model.cardConfigs[index] = newValue
+            }
+        )
+    }
 
     private func chooseDestinationQuick() {
         let panel = NSOpenPanel()

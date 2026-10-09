@@ -116,7 +116,9 @@ Tests/
   pokazywane na karcie i liczone w historii.
 - Można wielokrotnie zgrywać do tego samego projektu tego samego dnia — istniejący plik
   `.drp` nie jest nadpisywany.
-- Deduplikacja domyślnie porównuje rozmiar pliku; opcjonalnie można włączyć porównanie
-  checksum SHA-256 (wolniejsze, ale pewniejsze).
+- Deduplikacja domyślnie porównuje rozmiar i datę modyfikacji pliku; opcjonalnie można
+  włączyć porównanie checksum SHA-256 (wolniejsze, ale pewniejsze). Sprawdzane są też kopie
+  zapisane wcześniej pod nazwą z sufiksem (`nazwa_1.ext`), więc ponowne zgranie tej samej
+  karty niczego nie duplikuje.
 - Gdy dwie karty zawierają pliki o identycznych nazwach, ale różnej zawartości, aplikacja
   tworzy unikalną nazwę (`nazwa_1.ext`, `nazwa_2.ext`, …).

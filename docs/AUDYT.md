@@ -8,7 +8,7 @@ Stan na commit `542cde3` (2026-10-09). Przejrzany cały kod: `SDCardOrganizerCor
 > uruchamiany. Punkty oznaczone *(do potwierdzenia na Macu)* wynikają z wiedzy o zachowaniu
 > macOS/SwiftUI i warto je sprawdzić ręcznie.
 
-> **Status poprawek:** B1, B2, B3 i B4 są naprawione (zob. historię gałęzi
+> **Status poprawek:** B1–B10 i B16 są naprawione (zob. historię gałęzi
 > `claude/intelligent-keller-legdgb`). Pozostałe punkty czekają na realizację.
 
 Priorytety: 🔴 krytyczne (utrata danych / crash / zablokowany główny scenariusz),
@@ -57,7 +57,7 @@ docelowy, szablon `.drp` i typy plików. Ten sam problem wróci przy każdym now
 **Naprawa:** własny `init(from:)` z `decodeIfPresent` i wartościami domyślnymi. Przy błędzie
 dekodowania zrób kopię zapasową uszkodzonego pliku, zamiast go nadpisywać.
 
-### 🟠 B5. Deduplikacja porównuje tylko z oryginalną nazwą, więc ponowne zgranie tworzy duplikaty
+### ✅ 🟠 B5. Deduplikacja porównuje tylko z oryginalną nazwą, więc ponowne zgranie tworzy duplikaty
 `CopyPlanner.swift:27-39`. Jeśli przy pierwszym zgraniu plik dostał nazwę `clip_1.mov` (bo
 `clip.mov` z innej kamery już był), przy kolejnym zgraniu porównanie idzie tylko z
 `clip.mov`. Wynik: inna zawartość, więc powstaje nowa kopia `clip_2.mov`. Każde ponowne
@@ -65,7 +65,7 @@ zgranie tej samej karty mnoży pliki.
 **Naprawa:** sprawdzaj też `nazwa_N.ext` albo trzymaj w folderze projektu indeks
 (nazwa źródłowa + rozmiar + data/hash → plik docelowy).
 
-### 🟠 B6. Duplikat rozpoznawany tylko po rozmiarze (domyślnie)
+### ✅ 🟠 B6. Duplikat rozpoznawany tylko po rozmiarze (domyślnie)
 `CopyPlanner.swift:48-61`. Ta sama nazwa i ten sam rozmiar są traktowane jako ten sam plik.
 Przy kodekach o stałym bitrate (BRAW, ProRes, WAV) dwa różne ujęcia o tej samej długości i
 nazwie (np. po sformatowaniu karty numeracja startuje od nowa) mają ten sam rozmiar. Drugi
@@ -73,12 +73,12 @@ plik zostanie wtedy **pominięty, czyli utracony**.
 **Naprawa:** porównuj co najmniej rozmiar i datę modyfikacji, a najlepiej szybki hash
 (xxHash) pierwszych i ostatnich MB.
 
-### 🟠 B7. Uruchomienie przez `swift run SDCardOrganizer` (jak w README) kończy się crashem
+### ✅ 🟠 B7. Uruchomienie przez `swift run SDCardOrganizer` (jak w README) kończy się crashem
 `AppModel.swift:56`. `UNUserNotificationCenter.current()` w procesie bez bundle'a `.app`
 rzuca `NSInternalInconsistencyException` („bundleProxyForCurrentProcess is nil”).
 **Naprawa:** wywołuj tylko, gdy `Bundle.main.bundleIdentifier != nil`, albo popraw README.
 
-### 🟠 B8. Przy starcie z kilkoma włożonymi kartami skanowana jest tylko pierwsza
+### ✅ 🟠 B8. Przy starcie z kilkoma włożonymi kartami skanowana jest tylko pierwsza
 `AppModel.swift:169-192`. Przy pierwszym odczycie wszystkie karty są „nowe”, ale skanowana
 jest tylko `newIDs.first`. Gałąź `else`, która skanuje resztę, wtedy się nie wykona.
 Pozostałe karty pokazują „Brak pasujących plików” do czasu ręcznego „Skanuj karty”. Ten
@@ -86,13 +86,13 @@ sam problem występuje, gdy dwie karty zamontują się w jednym odświeżeniu.
 **Naprawa:** skanuj wszystkie `newIDs`, a powiadomienie wysyłaj tylko dla kart włożonych
 po starcie.
 
-### 🟠 B9. Ręcznie dodany folder znika po każdej zmianie wolumenów
+### ✅ 🟠 B9. Ręcznie dodany folder znika po każdej zmianie wolumenów
 `AppModel.swift:147-166`. Lista `cardConfigs` jest budowana od nowa wyłącznie z
 zamontowanych wolumenów, więc konfiguracja dodana przez „Wybierz folder ręcznie” jest
 usuwana, gdy włożysz lub wysuniesz dowolną kartę.
 **Naprawa:** oznacz źródła ręczne (`isManual`) i zachowuj je przy przebudowie listy.
 
-### 🟠 B10. Wyścigi wątków i ryzyko crasha „Index out of range”
+### ✅ 🟠 B10. Wyścigi wątków i ryzyko crasha „Index out of range”
 - `AppModel.swift:301` czyta `self.cardConfigs` z wątku w tle, a wątek główny w tym samym
   czasie je modyfikuje. To wyścig danych na tablicy Swift.
 - `AppModel.swift:303-306` używa indeksu `cardIdx` policzonego w tle wewnątrz
@@ -141,7 +141,7 @@ Przed zgraniem aplikacja nie sprawdza, czy:
 - jest na nim **wystarczająco miejsca** (teraz wykrywa się to w połowie kopiowania),
 - system plików przyjmie pliki > 4 GB (FAT32 jako cel).
 
-### 🟡 B16. Wysuwanie i zmiana nazwy karty są dostępne w trakcie zgrywania
+### ✅ 🟡 B16. Wysuwanie i zmiana nazwy karty są dostępne w trakcie zgrywania
 `CardColumnView.swift` (przyciski eject i ołówek) nie są blokowane, gdy `isCopying`. Tak samo
 przełączniki filtrów, które w trakcie i tak nic nie zmieniają, a mylą.
 

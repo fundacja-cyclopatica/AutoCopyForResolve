@@ -6,6 +6,8 @@ struct CardColumnView: View {
     @Binding var config: CardIngestConfig
     let cardIndex: Int
     let cameraPresets: [String]
+    /// Trwa zgrywanie — blokujemy wysuwanie, zmianę nazwy i edycję wyboru materiałów.
+    let isLocked: Bool
     let onRescan: () -> Void
     let onEject: () -> Void
     let onPromptRename: () -> Void
@@ -40,12 +42,15 @@ struct CardColumnView: View {
 
             // Podpis kamery / kąt ze slotem technicznym i chmurkami
             cameraLabelSection
+                .disabled(isLocked)
 
             // Filtry typów materiałów (Filmy / Zdjęcia)
             mediaTypeSection
+                .disabled(isLocked)
 
             // Zakres nagrań (przełącznik Najnowszy/Wszystkie i lista dni)
             daysSelectionSection
+                .disabled(isLocked)
 
             Spacer(minLength: 2)
 
@@ -94,7 +99,7 @@ struct CardColumnView: View {
                             .stroke(themeColor.opacity(0.35), lineWidth: 1)
                     )
 
-                Image(systemName: "sdcard.fill")
+                Image(systemName: config.isManual ? "folder.fill" : "sdcard.fill")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(themeColor)
                     .frame(width: 34, height: 34)
@@ -116,15 +121,18 @@ struct CardColumnView: View {
                         .foregroundStyle(Color.white)
                         .lineLimit(1)
 
-                    Button {
-                        onPromptRename()
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.gray)
+                    if !config.isManual {
+                        Button {
+                            onPromptRename()
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color.gray)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isLocked)
+                        .help("Zmień nazwę karty w systemie")
                     }
-                    .buttonStyle(.plain)
-                    .help("Zmień nazwę karty w systemie")
 
                     if config.isScanning {
                         ProgressView().controlSize(.mini)
@@ -140,19 +148,20 @@ struct CardColumnView: View {
 
             Spacer()
 
-            // Przycisk bezpiecznego wysunięcia karty
+            // Przycisk bezpiecznego wysunięcia karty (dla folderu: usunięcie z listy)
             Button {
                 onEject()
             } label: {
-                Image(systemName: "eject.fill")
+                Image(systemName: config.isManual ? "xmark" : "eject.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color.gray.opacity(0.8))
+                    .foregroundStyle(Color.gray.opacity(isLocked ? 0.3 : 0.8))
             }
             .buttonStyle(.plain)
             .padding(4)
             .background(Color.white.opacity(0.04))
             .cornerRadius(5)
-            .help("Wysuń bezpiecznie kartę z czytnika")
+            .disabled(isLocked)
+            .help(config.isManual ? "Usuń folder z listy źródeł" : "Wysuń bezpiecznie kartę z czytnika")
 
             // Przełącznik włączenia do sesji zgrywania
             Toggle("", isOn: $config.isEnabled)
@@ -160,6 +169,7 @@ struct CardColumnView: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .tint(themeColor)
+                .disabled(isLocked)
                 .help(config.isEnabled ? "Karta włączona do zgrywania" : "Karta pomijana")
         }
     }

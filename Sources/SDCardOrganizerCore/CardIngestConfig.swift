@@ -14,6 +14,10 @@ public struct CardIngestConfig: Identifiable, Equatable {
     /// Czy karta jest zaznaczona do zgrania
     public var isEnabled: Bool
 
+    /// Źródło dodane ręcznie (folder wybrany przez użytkownika), a nie wykryty nośnik wymienny.
+    /// Takiego źródła nie da się wysunąć ani zmienić mu nazwy — można je tylko usunąć z listy.
+    public let isManual: Bool
+
     /// Zeskanowane pliki
     public var scannedFiles: [MediaFile]
 
@@ -43,6 +47,7 @@ public struct CardIngestConfig: Identifiable, Equatable {
         availableCapacity: Int? = nil,
         cameraLabel: String = "",
         isEnabled: Bool = true,
+        isManual: Bool = false,
         includeVideos: Bool = true,
         includePhotos: Bool = true,
         includeAudio: Bool = true
@@ -54,6 +59,7 @@ public struct CardIngestConfig: Identifiable, Equatable {
         self.availableCapacity = availableCapacity
         self.cameraLabel = cameraLabel
         self.isEnabled = isEnabled
+        self.isManual = isManual
         self.includeVideos = includeVideos
         self.includePhotos = includePhotos
         self.includeAudio = includeAudio

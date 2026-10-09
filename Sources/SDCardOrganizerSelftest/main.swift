@@ -259,6 +259,49 @@ struct SelfTest {
                 && leftovers.isEmpty
         }
 
+        check("Ponowne zgranie po kolizji nazw nie tworzy duplikatów") {
+            let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: base) }
+            let cardA = base.appendingPathComponent("cardA")
+            let cardB = base.appendingPathComponent("cardB")
+            let dest = base.appendingPathComponent("dest")
+            for dir in [cardA, cardB, dest] {
+                try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            }
+            try! "kamera-a".data(using: .utf8)!.write(to: cardA.appendingPathComponent("C0001.MP4"))
+            try! "kamera-b-dluzszy".data(using: .utf8)!.write(to: cardB.appendingPathComponent("C0001.MP4"))
+            let filesA = try! MediaScanner(enabledExtensions: ["mp4"]).scan(volumeRoot: cardA)
+            let filesB = try! MediaScanner(enabledExtensions: ["mp4"]).scan(volumeRoot: cardB)
+            let layout = ProjectLayout(destinationRoot: dest.path, projectName: "Test")
+            let service = CopyService(verifyChecksums: false)
+            _ = try! service.copy(files: filesA, to: layout)
+            let firstB = try! service.copy(files: filesB, to: layout)
+            let againB = try! service.copy(files: filesB, to: layout)
+            let names = ((try? FileManager.default.contentsOfDirectory(atPath: layout.videoDir.path)) ?? [])
+                .filter { !$0.hasPrefix(".") }.sorted()
+            return firstB.copied.map(\.lastPathComponent) == ["C0001_1.MP4"]
+                && againB.totalSkipped == 1 && againB.totalCopied == 0
+                && names == ["C0001.MP4", "C0001_1.MP4"]
+        }
+
+        check("Ten sam rozmiar, inna data nagrania -> nie duplikat") {
+            let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: base) }
+            let card = base.appendingPathComponent("card")
+            let dest = base.appendingPathComponent("dest")
+            try! FileManager.default.createDirectory(at: card, withIntermediateDirectories: true)
+            try! FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+            let source = card.appendingPathComponent("A001.BRAW")
+            try! "AAAA".data(using: .utf8)!.write(to: source)
+            let existing = dest.appendingPathComponent("A001.BRAW")
+            try! "BBBB".data(using: .utf8)!.write(to: existing)
+            try! FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: existing.path)
+            let decision = CopyPlanner.decision(
+                source: source, destinationDirectory: dest, verifyChecksums: false, existingNames: ["A001.BRAW"]
+            )
+            return decision == .copy(dest.appendingPathComponent("A001_1.BRAW"))
+        }
+
         print("")
         print("Wynik: \(passed) zdało, \(failed) nie zdało.")
         if failed > 0 { exit(1) }

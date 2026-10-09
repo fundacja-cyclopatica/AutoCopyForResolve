@@ -44,8 +44,18 @@ public final class AppModel: ObservableObject {
     private let settingsURL: URL
     private var cancellables = Set<AnyCancellable>()
     private var knownVolumeIDs = Set<String>()
+    private var hasHandledInitialVolumes = false
+
+    /// Maksymalna liczba źródeł (kart i ręcznie dodanych folderów) wyświetlanych obok siebie.
+    public static let maxCards = 4
 
     private let defaultLabels = ["Kamera A", "Kamera B", "Kamera C", "Dron"]
+
+    /// Powiadomienia systemowe działają tylko w aplikacji z pakietem `.app` — przy uruchomieniu
+    /// gołej binarki (`swift run`) `UNUserNotificationCenter.current()` kończy proces wyjątkiem.
+    private static var notificationsAvailable: Bool {
+        Bundle.main.bundleIdentifier != nil
+    }
 
     public init(settingsURL: URL = Settings.defaultSettingsURL()) {
         self.settingsURL = settingsURL
@@ -53,7 +63,9 @@ public final class AppModel: ObservableObject {
         self.history = IngestHistory.load()
 
         // Poproś o uprawnienia do powiadomień
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        if Self.notificationsAvailable {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
 
         // Reaguj na zmiany podłączonych kart
         volumeMonitor.$removableVolumes
@@ -115,22 +127,41 @@ public final class AppModel: ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.message = "Wybierz folder lub podłączoną kartę pamięci"
-        if panel.runModal() == .OK, let url = panel.url {
-            let name = url.lastPathComponent
-            let total = (try? url.resourceValues(forKeys: [.volumeTotalCapacityKey]).volumeTotalCapacity) ?? 64_000_000_000
-            let avail = (try? url.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity) ?? 32_000_000_000
-            let defaultLabel = cardConfigs.count < defaultLabels.count ? defaultLabels[cardConfigs.count] : "Kamera \(cardConfigs.count + 1)"
-            let config = CardIngestConfig(
-                volumeURL: url,
-                volumeName: name,
-                totalCapacity: total,
-                availableCapacity: avail,
-                cameraLabel: defaultLabel,
-                isEnabled: true
-            )
-            cardConfigs.append(config)
-            scanCard(url: url)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        if cardConfigs.contains(where: { $0.volumeURL.standardizedFileURL == url.standardizedFileURL }) {
+            setStatus("Ten folder jest już na liście źródeł.", isError: false)
+            return
         }
+        guard cardConfigs.count < Self.maxCards else {
+            setStatus("Można zgrywać jednocześnie maksymalnie \(Self.maxCards) źródła.", isError: true)
+            return
+        }
+
+        let values = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
+        let config = CardIngestConfig(
+            volumeURL: url,
+            volumeName: url.lastPathComponent,
+            totalCapacity: values?.volumeTotalCapacity,
+            availableCapacity: values?.volumeAvailableCapacity,
+            cameraLabel: defaultLabel(for: cardConfigs.count),
+            isEnabled: true,
+            isManual: true
+        )
+        cardConfigs.append(config)
+        scanCard(url: url)
+    }
+
+    private func defaultLabel(for index: Int) -> String {
+        index < defaultLabels.count ? defaultLabels[index] : "Kamera \(index + 1)"
+    }
+
+    /// Modyfikuje konfigurację karty o podanym `id`. Jeśli karty nie ma już na liście
+    /// (np. została wysunięta), nic nie robi. Wywoływać wyłącznie na wątku głównym —
+    /// karty identyfikujemy po `id`, nigdy po indeksie, bo lista może się zmienić w każdej chwili.
+    private func updateCard(id: String, _ change: (inout CardIngestConfig) -> Void) {
+        guard let index = cardConfigs.firstIndex(where: { $0.id == id }) else { return }
+        change(&cardConfigs[index])
     }
 
     // MARK: – Obsługa wykrywania kart
@@ -139,61 +170,70 @@ public final class AppModel: ObservableObject {
         let currentIDs = Set(volumes.map(\.id))
         let newIDs = currentIDs.subtracting(knownVolumeIDs)
         knownVolumeIDs = currentIDs
+        let isInitialLoad = !hasHandledInitialVolumes
+        hasHandledInitialVolumes = true
 
-        // Ograniczenie do maksymalnie 4 kart
-        let limitedVolumes = Array(volumes.prefix(4))
-
-        // Zachowaj istniejące konfiguracje dla wciąż podłączonych kart
+        // Zachowaj istniejące konfiguracje dla wciąż podłączonych kart (maksymalnie 4 źródła)
         var newConfigs: [CardIngestConfig] = []
 
-        for (index, volume) in limitedVolumes.enumerated() {
-            if let existing = cardConfigs.first(where: { $0.volumeURL == volume.url }) {
+        for volume in volumes.prefix(Self.maxCards) {
+            if let existing = cardConfigs.first(where: { $0.volumeURL == volume.url && !$0.isManual }) {
                 newConfigs.append(existing)
             } else {
-                let defaultLabel = index < defaultLabels.count ? defaultLabels[index] : "Kamera \(index + 1)"
                 let config = CardIngestConfig(
                     volumeURL: volume.url,
                     volumeName: volume.name,
                     totalCapacity: volume.totalCapacity,
                     availableCapacity: volume.availableCapacity,
-                    cameraLabel: defaultLabel,
+                    cameraLabel: defaultLabel(for: newConfigs.count),
                     isEnabled: true
                 )
                 newConfigs.append(config)
             }
         }
 
+        // Ręcznie dodane foldery zostają na liście, dopóki istnieją na dysku.
+        for manual in cardConfigs where manual.isManual {
+            guard newConfigs.count < Self.maxCards,
+                  !newConfigs.contains(where: { $0.volumeURL == manual.volumeURL }),
+                  FileManager.default.fileExists(atPath: manual.volumeURL.path) else { continue }
+            newConfigs.append(manual)
+        }
+
         self.cardConfigs = newConfigs
 
-        // Jeśli podłączono nową kartę -> powiadomienie, auto-skan i pop-up okna
-        if let newID = newIDs.first, let newVol = volumes.first(where: { $0.id == newID }) {
-            sendNotification(
-                title: "Wykryto kartę SD",
-                body: "Karta „\(newVol.name)” jest gotowa do zgrywania."
-            )
+        // Przeskanuj nowo podłączone karty oraz te, które nie mają jeszcze wyników
+        for config in cardConfigs where !config.isScanning
+            && (newIDs.contains(config.id) || config.scannedFiles.isEmpty) {
+            scanCard(url: config.volumeURL)
+        }
 
-            // Przeskanuj nowo podłączoną kartę
-            scanCard(url: newVol.url)
+        // Powiadomienie i pop-up okna tylko dla kart włożonych po uruchomieniu aplikacji
+        let insertedVolumes = volumes.filter { newIDs.contains($0.id) }
+        guard !isInitialLoad, !insertedVolumes.isEmpty else { return }
 
-            // Automatycznie otwórz i wysuń okno aplikacji na pierwszy plan (pop-up)
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: AppModel.showMainWindowNotification, object: nil)
-                NSApp.activate(ignoringOtherApps: true)
-                for window in NSApp.windows where window.canBecomeKey {
-                    window.makeKeyAndOrderFront(nil)
-                    window.orderFrontRegardless()
-                }
-            }
-        } else {
-            // Przeskanuj wszystkie karty, które nie mają jeszcze wyników
-            for config in cardConfigs where config.scannedFiles.isEmpty && !config.isScanning {
-                scanCard(url: config.volumeURL)
+        let names = insertedVolumes.map { "„\($0.name)”" }.joined(separator: ", ")
+        sendNotification(
+            title: insertedVolumes.count == 1 ? "Wykryto kartę SD" : "Wykryto karty SD",
+            body: insertedVolumes.count == 1
+                ? "Karta \(names) jest gotowa do zgrywania."
+                : "Karty \(names) są gotowe do zgrywania."
+        )
+
+        // Automatycznie otwórz i wysuń okno aplikacji na pierwszy plan (pop-up)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: AppModel.showMainWindowNotification, object: nil)
+            NSApp.activate(ignoringOtherApps: true)
+            for window in NSApp.windows where window.canBecomeKey {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
             }
         }
     }
 
     /// Wysyła powiadomienie systemowe macOS.
     private func sendNotification(title: String, body: String) {
+        guard Self.notificationsAvailable else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -212,16 +252,17 @@ public final class AppModel: ObservableObject {
     public func scanCard(url: URL) {
         guard let index = cardConfigs.firstIndex(where: { $0.volumeURL == url }) else { return }
         cardConfigs[index].isScanning = true
+        let cardID = cardConfigs[index].id
+        let extensions = settings.enabledExtensions
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            let scanner = MediaScanner(enabledExtensions: self.settings.enabledExtensions)
+            let scanner = MediaScanner(enabledExtensions: extensions)
             let results = (try? scanner.scan(volumeRoot: url)) ?? []
 
             DispatchQueue.main.async {
-                if let idx = self.cardConfigs.firstIndex(where: { $0.volumeURL == url }) {
-                    self.cardConfigs[idx].isScanning = false
-                    self.cardConfigs[idx].setScanResults(results)
+                self?.updateCard(id: cardID) { card in
+                    card.isScanning = false
+                    card.setScanResults(results)
                 }
             }
         }
@@ -236,6 +277,15 @@ public final class AppModel: ObservableObject {
     // MARK: – Zarządzanie wolumenami (Wysuwanie i Zmiana nazwy)
 
     public func ejectCard(url: URL) {
+        guard !isGlobalCopying else {
+            setStatus("Nie można wysunąć karty w trakcie zgrywania.", isError: true)
+            return
+        }
+        // Ręcznie dodany folder nie jest nośnikiem — „wysunięcie” usuwa go tylko z listy.
+        if cardConfigs.contains(where: { $0.volumeURL == url && $0.isManual }) {
+            cardConfigs.removeAll { $0.volumeURL == url }
+            return
+        }
         do {
             try VolumeManager.eject(url: url)
             volumeMonitor.refresh()
@@ -248,6 +298,12 @@ public final class AppModel: ObservableObject {
     public func renameCard(url: URL, newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        guard !isGlobalCopying else {
+            setStatus("Nie można zmienić nazwy karty w trakcie zgrywania.", isError: true)
+            return
+        }
+        // diskutil zmieniłby nazwę całego wolumenu, na którym leży ręcznie dodany folder.
+        guard !cardConfigs.contains(where: { $0.volumeURL == url && $0.isManual }) else { return }
         do {
             try VolumeManager.renameVolume(at: url, to: trimmed)
             volumeMonitor.refresh()
@@ -301,12 +357,13 @@ public final class AppModel: ObservableObject {
                 var allFailures: [FailedCopy] = []
 
                 for card in cardsToIngest {
-                    guard let cardIdx = self.cardConfigs.firstIndex(where: { $0.volumeURL == card.volumeURL }) else { continue }
-
                     DispatchQueue.main.async {
-                        self.cardConfigs[cardIdx].isCopying = true
-                        self.cardConfigs[cardIdx].progress = 0
-                        self.cardConfigs[cardIdx].currentFile = ""
+                        self.updateCard(id: card.id) {
+                            $0.isCopying = true
+                            $0.progress = 0
+                            $0.currentFile = ""
+                            $0.lastReport = nil
+                        }
                     }
 
                     let service = CopyService(
@@ -315,9 +372,10 @@ public final class AppModel: ObservableObject {
                     )
                     service.onProgress = { [weak self] fraction, fileURL in
                         DispatchQueue.main.async {
-                            guard let self, let idx = self.cardConfigs.firstIndex(where: { $0.volumeURL == card.volumeURL }) else { return }
-                            self.cardConfigs[idx].progress = fraction
-                            self.cardConfigs[idx].currentFile = fileURL.lastPathComponent
+                            self?.updateCard(id: card.id) {
+                                $0.progress = fraction
+                                $0.currentFile = fileURL.lastPathComponent
+                            }
                         }
                     }
 
@@ -338,10 +396,10 @@ public final class AppModel: ObservableObject {
                     let overallFraction = totalFilesAllCards > 0 ? Double(completedFilesAllCards) / Double(totalFilesAllCards) : 1.0
 
                     DispatchQueue.main.async {
-                        if let idx = self.cardConfigs.firstIndex(where: { $0.volumeURL == card.volumeURL }) {
-                            self.cardConfigs[idx].isCopying = false
-                            self.cardConfigs[idx].progress = 1.0
-                            self.cardConfigs[idx].lastReport = report
+                        self.updateCard(id: card.id) {
+                            $0.isCopying = false
+                            $0.progress = 1.0
+                            $0.lastReport = report
                         }
                         self.overallProgress = overallFraction
                     }
