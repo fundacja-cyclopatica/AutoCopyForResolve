@@ -18,6 +18,7 @@ public struct ProjectLayout {
     public let photoDir: URL
     public let daVinciDir: URL
     public let projectName: String
+    public let date: Date
 
     public init(destinationRoot: String, projectName: String, date: Date = Date()) {
         let safeName = ProjectLayout.sanitize(projectName)
@@ -27,6 +28,7 @@ public struct ProjectLayout {
 
         self.root = base
         self.projectName = safeName
+        self.date = date
         self.videoDir = base.appendingPathComponent("Video", isDirectory: true)
         self.audioDir = base.appendingPathComponent("Audio", isDirectory: true)
         self.photoDir = base.appendingPathComponent("Zdjęcia", isDirectory: true)
@@ -64,7 +66,7 @@ public struct ProjectLayout {
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
         df.locale = Locale(identifier: "en_US_POSIX")
-        let name = "\(df.string(from: Date()))_\(projectName).drp"
+        let name = "\(df.string(from: date))_\(projectName).drp"
         return daVinciDir.appendingPathComponent(name)
     }
 

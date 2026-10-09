@@ -99,6 +99,7 @@ final class CopyServiceTests: XCTestCase {
 
         XCTAssertEqual(report.totalCopied, 1)
         XCTAssertEqual(report.totalSkipped, 0)
+        XCTAssertEqual(report.totalBytesCopied, Int64("clip-content".utf8.count))
 
         // Sprawdź strukturę: Video/A001.MOV
         let copied = layout.videoDir.appendingPathComponent("A001.MOV")
@@ -106,5 +107,20 @@ final class CopyServiceTests: XCTestCase {
         // Manifest i plik .drp
         XCTAssertTrue(FileManager.default.fileExists(atPath: layout.manifestURL().path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: layout.drpFileURL().path))
+    }
+
+    func testIngestHistoryPersistence() {
+        let record = IngestRecord(
+            projectName: "XCTestProject",
+            sourceVolumeName: "SD_TEST",
+            destinationPath: "/dest/test",
+            filesCopied: 3,
+            filesSkipped: 0,
+            filesFailed: 0,
+            totalBytes: 5000
+        )
+        IngestHistory.append(record)
+        let loaded = IngestHistory.load()
+        XCTAssertTrue(loaded.contains(where: { $0.projectName == "XCTestProject" }))
     }
 }

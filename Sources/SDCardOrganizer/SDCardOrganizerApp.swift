@@ -9,13 +9,21 @@ struct SDCardOrganizerApp: App {
         MenuBarExtra {
             MenuBarMenu(model: model)
         } label: {
-            Label("SD Organizer", systemImage: "externaldrive.fill")
+            if model.isCopying {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                    Text("\(Int(model.progress * 100))%")
+                        .font(.caption2.monospacedDigit())
+                }
+            } else {
+                Label("SD Organizer", systemImage: model.volumeMonitor.removableVolumes.isEmpty ? "externaldrive" : "externaldrive.fill.badge.checkmark")
+            }
         }
 
         // Pełne okno aplikacji.
         WindowGroup("SD Card Organizer", id: "main") {
             MainWindow(model: model)
-                .frame(minWidth: 640, minHeight: 520)
+                .frame(minWidth: 680, minHeight: 560)
         }
 
         // Okno ustawień.
@@ -25,3 +33,4 @@ struct SDCardOrganizerApp: App {
         }
     }
 }
+

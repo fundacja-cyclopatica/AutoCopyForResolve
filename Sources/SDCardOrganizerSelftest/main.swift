@@ -58,14 +58,15 @@ struct SelfTest {
             return results.count == 3 && byName["v.mp4"] == .video && byName["p.jpg"] == .photo
         }
 
-        check("CopyService kopiuje i tworzy strukturę") {
+        check("CopyService kopiuje i liczy bajty") {
             let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: base) }
             let card = base.appendingPathComponent("card")
             let dest = base.appendingPathComponent("dest")
             try! FileManager.default.createDirectory(at: card, withIntermediateDirectories: true)
             try! FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
-            try! "content".data(using: .utf8)!.write(to: card.appendingPathComponent("A001.MOV"))
+            let testData = "content-of-test-clip-12345".data(using: .utf8)!
+            try! testData.write(to: card.appendingPathComponent("A001.MOV"))
 
             var s = Settings()
             s.destinationRoot = dest.path
@@ -73,7 +74,22 @@ struct SelfTest {
             let layout = ProjectLayout(destinationRoot: dest.path, projectName: "Test")
             let report = try! CopyService(verifyChecksums: false).copy(files: files, to: layout)
             let copiedOK = FileManager.default.fileExists(atPath: layout.videoDir.appendingPathComponent("A001.MOV").path)
-            return report.totalCopied == 1 && copiedOK
+            return report.totalCopied == 1 && report.totalBytesCopied == Int64(testData.count) && copiedOK
+        }
+
+        check("IngestHistory zapisuje i odczytuje rekordy") {
+            let record = IngestRecord(
+                projectName: "SampleProject",
+                sourceVolumeName: "SD_CARD",
+                destinationPath: "/Volumes/SSD/2026-10-09_SampleProject",
+                filesCopied: 5,
+                filesSkipped: 1,
+                filesFailed: 0,
+                totalBytes: 1024 * 1024
+            )
+            IngestHistory.append(record)
+            let loaded = IngestHistory.load()
+            return loaded.contains(where: { $0.projectName == "SampleProject" && $0.filesCopied == 5 })
         }
 
         check("ProjectBuilder tworzy katalogi, manifest i .drp") {

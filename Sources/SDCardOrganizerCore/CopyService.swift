@@ -12,6 +12,7 @@ public struct CopyReport {
     public var copied: [URL] = []
     public var skipped: [URL] = []
     public var failed: [(url: URL, error: String)] = []
+    public var totalBytesCopied: Int64 = 0
 
     public var totalCopied: Int { copied.count }
     public var totalSkipped: Int { skipped.count }
@@ -62,12 +63,14 @@ public final class CopyService {
             case .skipDuplicate:
                 report.skipped.append(file.url)
             case .copyAsIs(let dest):
-                try copyFile(from: file.url, to: dest)
+                let bytes = try copyFile(from: file.url, to: dest)
                 report.copied.append(dest)
+                report.totalBytesCopied += bytes
                 existingNamesByCategory[file.category, default: []].insert(dest.lastPathComponent)
             case .copy(let dest):
-                try copyFile(from: file.url, to: dest)
+                let bytes = try copyFile(from: file.url, to: dest)
                 report.copied.append(dest)
+                report.totalBytesCopied += bytes
                 existingNamesByCategory[file.category, default: []].insert(dest.lastPathComponent)
             }
 
@@ -94,7 +97,9 @@ public final class CopyService {
     }
 
     /// Kopiuje pojedynczy plik bez obciążania pamięci (strumieniowo).
-    private func copyFile(from source: URL, to destination: URL) throws {
+    /// Zwraca liczbę skopiowanych bajtów.
+    @discardableResult
+    private func copyFile(from source: URL, to destination: URL) throws -> Int64 {
         // Usuwamy ewentualny istniejący plik docelowy (nie powinno go być po deduplikacji).
         if fileManager.fileExists(atPath: destination.path) {
             try fileManager.removeItem(at: destination)
@@ -115,6 +120,7 @@ public final class CopyService {
         }
 
         var buffer = [UInt8](repeating: 0, count: 1024 * 1024)
+        var totalWritten: Int64 = 0
         while input.hasBytesAvailable {
             let read = input.read(&buffer, maxLength: buffer.count)
             if read < 0 {
@@ -129,7 +135,9 @@ public final class CopyService {
                 }
                 written += n
             }
+            totalWritten += Int64(read)
         }
+        return totalWritten
     }
 
     public enum CopyError: LocalizedError {
