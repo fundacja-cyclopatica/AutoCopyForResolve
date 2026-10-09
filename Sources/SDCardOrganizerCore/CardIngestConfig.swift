@@ -91,6 +91,51 @@ public struct CardIngestConfig: Identifiable, Equatable {
         filteredFiles.reduce(0) { $0 + $1.size }
     }
 
+    /// Łączny rozmiar wideo na karcie
+    public var videoBytes: Int64 {
+        scannedFiles.filter { $0.category == .video }.reduce(0) { $0 + $1.size }
+    }
+
+    /// Łączny rozmiar zdjęć na karcie
+    public var photoBytes: Int64 {
+        scannedFiles.filter { $0.category == .photo }.reduce(0) { $0 + $1.size }
+    }
+
+    /// Łączny rozmiar audio na karcie
+    public var audioBytes: Int64 {
+        scannedFiles.filter { $0.category == .audio }.reduce(0) { $0 + $1.size }
+    }
+
+    public var totalVideoCount: Int {
+        scannedFiles.filter { $0.category == .video }.count
+    }
+
+    public var totalPhotoCount: Int {
+        scannedFiles.filter { $0.category == .photo }.count
+    }
+
+    public var totalAudioCount: Int {
+        scannedFiles.filter { $0.category == .audio }.count
+    }
+
+    /// Procent wolnego miejsca (0-100)
+    public var freePercent: Int {
+        guard let total = totalCapacity, let avail = availableCapacity, total > 0 else { return 50 }
+        return max(0, min(100, Int((Double(avail) / Double(total)) * 100)))
+    }
+
+    /// Proporcja zajętości przez wideo (0.0 - 1.0)
+    public var videoPercent: Double {
+        guard let total = totalCapacity, total > 0 else { return 0.2 }
+        return max(0.02, min(0.9, Double(videoBytes) / Double(total)))
+    }
+
+    /// Proporcja zajętości przez zdjęcia (0.0 - 1.0)
+    public var photoPercent: Double {
+        guard let total = totalCapacity, total > 0 else { return 0.05 }
+        return max(0.01, min(0.9, Double(photoBytes) / Double(total)))
+    }
+
     /// Szybki wybór najnowszego dnia
     public mutating func selectLatestDay() {
         if let latest = availableDays.first?.dayString {

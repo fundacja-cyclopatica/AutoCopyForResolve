@@ -1,20 +1,68 @@
 import SwiftUI
 import SDCardOrganizerCore
 
-/// Główne okno aplikacji — widok kolumnowy dla kart SD (Apple Design).
+/// Główne okno aplikacji — macOS Studio Dark Glass UI.
 struct MainWindow: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        TabView(selection: $model.selectedTab) {
-            ingestTab
-                .tabItem { Label("Zgraj materiały", systemImage: "square.and.arrow.down") }
-                .tag(0)
-            historyTab
-                .tabItem { Label("Historia", systemImage: "clock") }
-                .tag(1)
+        ZStack(alignment: .topTrailing) {
+            // Główna zawartość okna w stylu Studio
+            VStack(spacing: 0) {
+                // Górny pasek tytułowy z przełącznikiem zakładek i akcjami
+                studioTitleBar
+
+                // Pasek konfiguracji projektu i dysku docelowego
+                if model.selectedTab == 0 {
+                    topConfigurationBar
+                }
+
+                // Zawartość wybranej zakładki
+                if model.selectedTab == 0 {
+                    mainIngestWorkspace
+                } else {
+                    historyWorkspace
+                }
+
+                // Dolny pasek akcji (Global Action Bar)
+                if model.selectedTab == 0 {
+                    globalActionBar
+                }
+            }
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(red: 24/255, green: 28/255, blue: 38/255),
+                        Color(red: 10/255, green: 12/255, blue: 16/255)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+
+            // Pływające okno ustawień (Floating Studio Settings Panel)
+            if model.isSettingsPanelOpen {
+                StudioSettingsModalView(
+                    model: model,
+                    onClose: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            model.isSettingsPanelOpen = false
+                        }
+                    },
+                    onOpenFullSettings: {
+                        openSettings()
+                    }
+                )
+                .padding(.top, 46)
+                .padding(.trailing, 16)
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.95, anchor: .topTrailing).combined(with: .opacity),
+                    removal: .scale(scale: 0.95, anchor: .topTrailing).combined(with: .opacity)
+                ))
+                .zIndex(100)
+            }
         }
-        .padding(16)
+        .frame(minWidth: 1060, minHeight: 680)
         .alert("Zmień nazwę karty", isPresented: Binding(
             get: { model.renamingCardURL != nil },
             set: { if !$0 { model.renamingCardURL = nil } }
@@ -34,317 +82,437 @@ struct MainWindow: View {
         }
     }
 
-    // MARK: – Tab: Zgrywanie z wielu kart
+    // MARK: – Pasek tytułowy (Studio Titlebar)
 
-    private var ingestTab: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header
-
-            // Pasek konfiguracji projektu i dysku docelowego
-            projectConfigBar
-
-            Divider()
-
-            // Główna strefa kart (kolumny obok siebie, do 4 kart)
-            cardsContentArea
-
-            Spacer(minLength: 4)
-
-            // Pasek postępu globalnego (gdy zgrywanie w toku)
-            if model.isGlobalCopying {
-                globalProgressSection
+    private var studioTitleBar: some View {
+        HStack(spacing: 0) {
+            // Lewa strona (miejsce na przyciski okna)
+            HStack(spacing: 6) {
+                // Zachowaj naturalny odstęp od lewej krawędzi
+                Spacer().frame(width: 8)
             }
+            .frame(width: 140, alignment: .leading)
 
-            // Komunikat statusu
-            if !model.statusMessage.isEmpty {
-                statusBanner
-            }
-
-            // Dolny pasek akcji z podsumowaniem i przyciskiem Zgraj
-            bottomActionBar
-        }
-    }
-
-    // MARK: – Nagłówek okna
-
-    private var header: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("SD Card Organizer")
-                    .font(.title2.bold())
-                Text("Zgrywaj materiały z wielu kamer i twórz projekt DaVinci Resolve")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
             Spacer()
 
+            // Środek: Segmented Pro Controller Tabs
+            HStack(spacing: 2) {
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        model.selectedTab = 0
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(StudioTheme.accentCyan)
+                            .frame(width: 6, height: 6)
+                            .shadow(color: StudioTheme.accentCyan, radius: 3)
+                        Text("Zgraj materiały")
+                            .font(.system(size: 11, weight: model.selectedTab == 0 ? .semibold : .medium))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(model.selectedTab == 0 ? Color.white.opacity(0.12) : Color.clear)
+                    .foregroundStyle(model.selectedTab == 0 ? Color.white : Color.gray)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        model.selectedTab = 1
+                    }
+                } label: {
+                    Text("Historia")
+                        .font(.system(size: 11, weight: model.selectedTab == 1 ? .semibold : .medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(model.selectedTab == 1 ? Color.white.opacity(0.12) : Color.clear)
+                        .foregroundStyle(model.selectedTab == 1 ? Color.white : Color.gray)
+                        .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(2)
+            .background(Color.black.opacity(0.55))
+            .cornerRadius(8)
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.10), lineWidth: 1))
+
+            Spacer()
+
+            // Prawa strona: Akcje Skanuj karty i Ustawienia
             HStack(spacing: 8) {
                 Button {
                     model.scanAllCards()
                 } label: {
-                    Label("Skanuj karty", systemImage: "arrow.clockwise")
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(StudioTheme.accentCyan)
+                        Text("Skanuj karty")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color.gray.opacity(0.9))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.04))
+                    .cornerRadius(6)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.10), lineWidth: 1))
                 }
-                .controlSize(.small)
-                .disabled(model.cardConfigs.isEmpty || model.isGlobalCopying)
+                .buttonStyle(.plain)
+                .disabled(model.isGlobalCopying)
 
                 Button {
-                    openSettings()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        model.isSettingsPanelOpen.toggle()
+                    }
                 } label: {
-                    Label("Ustawienia", systemImage: "gear")
+                    HStack(spacing: 4) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 11))
+                            .foregroundStyle(model.isSettingsPanelOpen ? StudioTheme.accentCyan : Color.gray)
+                        Text("Ustawienia")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(model.isSettingsPanelOpen ? Color.white : Color.gray.opacity(0.9))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(model.isSettingsPanelOpen ? Color.white.opacity(0.12) : Color.white.opacity(0.04))
+                    .cornerRadius(6)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(model.isSettingsPanelOpen ? StudioTheme.accentCyan.opacity(0.5) : Color.white.opacity(0.10), lineWidth: 1))
                 }
-                .controlSize(.small)
+                .buttonStyle(.plain)
             }
+            .frame(width: 220, alignment: .trailing)
+            .padding(.trailing, 12)
+        }
+        .frame(height: 38)
+        .background(Color.black.opacity(0.40))
+        .overlay(alignment: .bottom) {
+            Divider().overlay(Color.white.opacity(0.08))
         }
     }
 
-    // MARK: – Pasek projektu i dysku
+    // MARK: – Górny pasek konfiguracji (TopBarConfig)
 
-    private var projectConfigBar: some View {
-        HStack(spacing: 16) {
-            // Nazwa projektu
-            HStack(spacing: 8) {
-                Label("Projekt:", systemImage: "folder.badge.plus")
-                    .font(.subheadline.bold())
-                TextField("np. Trek Domane x2, Wywiad A", text: $model.projectName)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.regular)
+    private var topConfigurationBar: some View {
+        HStack(alignment: .center, spacing: 14) {
+            // Tytuł, LED dot i badge STUDIO 2.4
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(StudioTheme.accentCyan)
+                        .frame(width: 8, height: 8)
+                        .shadow(color: StudioTheme.accentCyan, radius: 5)
+
+                    Text("SD Card Organizer")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color.white)
+
+                    Text("STUDIO 2.4")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(StudioTheme.accentCyan)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(StudioTheme.accentCyan.opacity(0.10))
+                        .cornerRadius(4)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(StudioTheme.accentCyan.opacity(0.35), lineWidth: 1))
+                }
+
+                Text("Zgrywaj materiały z wielu kamer i twórz zintegrowany projekt DaVinci Resolve")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.gray.opacity(0.85))
             }
-            .frame(maxWidth: 360)
 
-            Divider().frame(height: 20)
+            Spacer(minLength: 16)
 
-            // Dysk docelowy
+            // Projekt i Dysk docelowy
             HStack(spacing: 8) {
-                Label("Dysk docelowy:", systemImage: "internaldrive")
-                    .font(.subheadline.bold())
+                // Nazwa projektu
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(StudioTheme.accentCyan)
 
-                if model.settings.destinationRoot.isEmpty {
-                    Text("(nie wybrano dysku)")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                    Button("Wybierz…") { chooseDestinationQuick() }
-                        .controlSize(.small)
-                } else {
-                    Text(model.settings.destinationRoot)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("Projekt:")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.gray)
+
+                    TextField("np. Foty", text: $model.projectName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.white)
+                        .frame(width: 100)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.black.opacity(0.60))
+                .cornerRadius(7)
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.10), lineWidth: 1))
+
+                // Dysk docelowy
+                HStack(spacing: 6) {
+                    Image(systemName: "internaldrive")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(StudioTheme.accentGreen)
+
+                    Text("Dysk docelowy:")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.gray)
+
+                    Text(model.settings.destinationRoot.isEmpty ? "Wybierz dysk…" : model.settings.destinationRoot)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(model.settings.destinationRoot.isEmpty ? Color.red.opacity(0.9) : Color.white.opacity(0.9))
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .frame(maxWidth: 240, alignment: .leading)
+
                     Button {
                         chooseDestinationQuick()
                     } label: {
-                        Image(systemName: "folder")
+                        Image(systemName: "folder.badge.gearshape")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.gray)
                     }
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
                     .help("Zmień dysk docelowy")
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.black.opacity(0.60))
+                .cornerRadius(7)
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.10), lineWidth: 1))
             }
-
-            Spacer()
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor).opacity(0.6))
-        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.black.opacity(0.25))
+        .overlay(alignment: .bottom) {
+            Divider().overlay(Color.white.opacity(0.08))
+        }
     }
 
-    // MARK: – Strefa kolumn kart
+    // MARK: – Główna strefa kart (MainCardsGrid - do 4 kolumn)
 
-    @ViewBuilder
-    private var cardsContentArea: some View {
-        if model.cardConfigs.isEmpty {
-            emptyStateView
-        } else {
-            ScrollView(.horizontal, showsIndicators: true) {
-                HStack(alignment: .top, spacing: 14) {
-                    ForEach(Array(model.cardConfigs.indices), id: \.self) { index in
-                        CardColumnView(
-                            config: $model.cardConfigs[index],
-                            cardIndex: index,
-                            cameraPresets: model.settings.cameraPresets,
-                            onRescan: {
-                                model.scanCard(url: model.cardConfigs[index].volumeURL)
-                            },
-                            onEject: {
-                                model.ejectCard(url: model.cardConfigs[index].volumeURL)
-                            },
-                            onPromptRename: {
-                                model.renameInputText = model.cardConfigs[index].volumeName
-                                model.renamingCardURL = model.cardConfigs[index].volumeURL
-                            },
-                            onOpenSettings: {
-                                openSettings()
+    private var mainIngestWorkspace: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            HStack(alignment: .top, spacing: 14) {
+                // Wyświetl podłączone karty (do 4)
+                ForEach(Array(model.cardConfigs.indices), id: \.self) { index in
+                    CardColumnView(
+                        config: $model.cardConfigs[index],
+                        cardIndex: index,
+                        cameraPresets: model.settings.cameraPresets,
+                        onRescan: {
+                            model.scanCard(url: model.cardConfigs[index].volumeURL)
+                        },
+                        onEject: {
+                            model.ejectCard(url: model.cardConfigs[index].volumeURL)
+                        },
+                        onPromptRename: {
+                            model.renameInputText = model.cardConfigs[index].volumeName
+                            model.renamingCardURL = model.cardConfigs[index].volumeURL
+                        },
+                        onOpenSettings: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                model.isSettingsPanelOpen = true
                             }
-                        )
-                    }
+                        }
+                    )
                 }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 2)
+
+                // Jeśli podłączono mniej niż 4 karty, wyświetl slot wolny
+                if model.cardConfigs.count < 4 {
+                    EmptyCardSlotView(onChooseFolder: {
+                        model.addManualFolder()
+                    })
+                }
             }
-            .frame(minHeight: 280)
+            .padding(16)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: – Empty State
+    // MARK: – Dolny pasek akcji (GlobalActionBar)
 
-    private var emptyStateView: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            ZStack {
-                Circle()
-                    .fill(Color.secondary.opacity(0.1))
-                    .frame(width: 72, height: 72)
-                Image(systemName: "sdcard")
-                    .font(.system(size: 36))
-                    .foregroundStyle(.secondary)
-            }
-
-            Text("Oczekiwanie na karty SD")
-                .font(.title3.bold())
-
-            Text("Włóż kartę SD lub micro SD do czytnika w MacBooku / Mac Studio.\nAplikacja automatycznie wykryje do 4 kart i utworzy osobną kolumnę dla każdej kamery.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 480)
-
-            Button {
-                model.volumeMonitor.refresh()
-            } label: {
-                Label("Odśwież wykrywanie kart", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .padding(.top, 4)
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, minHeight: 260)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6]))
-                .foregroundStyle(Color.secondary.opacity(0.2))
-        )
-    }
-
-    // MARK: – Pasek postępu globalnego
-
-    private var globalProgressSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Zgrywanie materiałów w toku…")
-                    .font(.caption.bold())
-                Spacer()
-                Text("\(Int(model.overallProgress * 100))%")
-                    .font(.caption.monospacedDigit().bold())
-            }
-            ProgressView(value: model.overallProgress)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.accentColor.opacity(0.08))
-        )
-    }
-
-    // MARK: – Komunikat statusu
-
-    private var statusBanner: some View {
-        HStack(spacing: 8) {
-            Image(systemName: model.statusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(model.statusIsError ? .red : .green)
-            Text(model.statusMessage)
-                .font(.callout)
-                .foregroundStyle(model.statusIsError ? Color.red : Color.primary)
-            Spacer()
-        }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(model.statusIsError ? Color.red.opacity(0.1) : Color.green.opacity(0.1))
-        )
-    }
-
-    // MARK: – Dolny pasek akcji
-
-    private var bottomActionBar: some View {
+    private var globalActionBar: some View {
         VStack(spacing: 8) {
-            // Opcje uruchamiania aplikacji po zgraniu
-            HStack(spacing: 16) {
-                let hasVideos = model.enabledCards.contains { card in card.filteredFiles.contains { $0.category == .video } }
-                let hasPhotos = model.enabledCards.contains { card in card.filteredFiles.contains { $0.category == .photo } }
+            // Status Feedback Banner (Audio/Video Engine Status Look)
+            HStack {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(model.statusIsError ? StudioTheme.accentRed : StudioTheme.accentGreen)
+                        .frame(width: 7, height: 7)
+                        .shadow(color: model.statusIsError ? StudioTheme.accentRed : StudioTheme.accentGreen, radius: 4)
 
-                Toggle(isOn: $model.settings.openInDaVinciResolve) {
-                    Label("Otwórz w DaVinci Resolve", systemImage: "film.stack")
-                        .font(.caption)
+                    Text(model.statusMessage.isEmpty ? (model.isGlobalCopying ? "Zgrywanie materiałów w toku…" : "Gotowy do zrzutu materiałów z podłączonych kamer") : model.statusMessage)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(model.statusIsError ? StudioTheme.accentRed : StudioTheme.accentGreen.opacity(0.95))
                 }
-                .toggleStyle(.checkbox)
 
-                Toggle(isOn: $model.settings.openInLightroom) {
-                    HStack(spacing: 4) {
-                        Label("Otwórz zdjęcia w Lightroom", systemImage: "camera.macro")
-                        if !hasVideos && hasPhotos {
-                            Text("(tylko zdjęcia)")
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
+                Spacer()
+
+                Text(model.isGlobalCopying ? "KOPIOWANIE: \(Int(model.overallProgress * 100))%" : "KONTROLER I/O: GOTOWY")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(model.statusIsError ? StudioTheme.accentRed : StudioTheme.accentGreen.opacity(0.85))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill((model.statusIsError ? StudioTheme.accentRed : StudioTheme.accentGreen).opacity(0.09))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke((model.statusIsError ? StudioTheme.accentRed : StudioTheme.accentGreen).opacity(0.25), lineWidth: 1)
+            )
+
+            // Pasek operacyjny
+            HStack(alignment: .center, spacing: 14) {
+                // Post-Action Checkboxes (DaVinci Resolve / Lightroom)
+                HStack(spacing: 8) {
+                    // DaVinci Resolve Switch
+                    Toggle(isOn: $model.settings.openInDaVinciResolve) {
+                        HStack(spacing: 6) {
+                            Text("Dv")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Color.white)
+                                .frame(width: 17, height: 17)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color(red: 234/255, green: 56/255, blue: 77/255), Color(red: 142/255, green: 14/255, blue: 0/255)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .cornerRadius(4)
+                            Text("Otwórz w DaVinci Resolve")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Color.gray.opacity(0.9))
                         }
                     }
-                    .font(.caption)
+                    .toggleStyle(.checkbox)
+                    .tint(StudioTheme.accentCyan)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.03))
+                    .cornerRadius(7)
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.08), lineWidth: 1))
+
+                    // Lightroom Switch
+                    Toggle(isOn: $model.settings.openInLightroom) {
+                        HStack(spacing: 6) {
+                            Text("Lr")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Color(red: 49/255, green: 168/255, blue: 255/255))
+                                .frame(width: 17, height: 17)
+                                .background(Color(red: 0/255, green: 29/255, blue: 52/255))
+                                .cornerRadius(4)
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(red: 49/255, green: 168/255, blue: 255/255).opacity(0.4), lineWidth: 1))
+                            Text("Otwórz zdjęcia w Lightroom")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Color.gray.opacity(0.9))
+                        }
+                    }
+                    .toggleStyle(.checkbox)
+                    .tint(StudioTheme.accentBlue)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.03))
+                    .cornerRadius(7)
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.08), lineWidth: 1))
                 }
-                .toggleStyle(.checkbox)
 
                 Spacer()
-            }
-            .padding(.horizontal, 2)
 
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
+                // Statystyki transferu
+                VStack(alignment: .trailing, spacing: 1) {
                     let enabledCount = model.enabledCards.count
                     let totalFiles = model.totalFilesToCopy
                     let totalBytes = model.totalBytesToCopy
 
-                    if enabledCount == 0 {
-                        Text("Zaznacz przynajmniej jedną kartę")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Wybrano: \(enabledCount) \(enabledCount == 1 ? "kartę" : "kart(y)") • \(totalFiles) plików (\(AppModel.formatBytes(totalBytes)))")
-                            .font(.subheadline.bold())
+                    HStack(spacing: 4) {
+                        Text("Wybrano:")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.gray)
+                        Text("\(enabledCount) kart(y)")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Color.white)
+                        Text("•")
+                            .foregroundStyle(Color.white.opacity(0.2))
+                        Text("\(totalFiles) plików")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Color.white)
+                    }
+
+                    HStack(spacing: 5) {
+                        Text("Łączny rozmiar: \(AppModel.formatBytes(totalBytes))")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(Color.gray.opacity(0.9))
+                        Text("•")
+                            .foregroundStyle(Color.white.opacity(0.2))
+                        Text("Czas: \(model.estimatedTransferInfo)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(StudioTheme.accentCyan)
                     }
                 }
 
-                Spacer()
-
+                // Główny przycisk akcji (Vibrant Studio Action Button)
                 Button {
                     model.startBatchCopy()
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 8) {
                         Image(systemName: "square.and.arrow.down.fill")
-                        Text(model.totalFilesToCopy == 0 ? "Wybierz materiały do zgrania" : "Zgraj (\(model.totalFilesToCopy) plików)")
+                            .font(.system(size: 13, weight: .bold))
+                        Text(model.totalFilesToCopy == 0 ? "Wybierz materiały" : "Zgraj (\(model.totalFilesToCopy) plików)")
+                            .font(.system(size: 13, weight: .bold))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
                     }
-                    .frame(minWidth: 200)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0/255, green: 210/255, blue: 255/255),
+                                Color(red: 10/255, green: 132/255, blue: 255/255),
+                                Color(red: 0/255, green: 102/255, blue: 255/255)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .foregroundStyle(Color(red: 5/255, green: 19/255, blue: 41/255))
+                    .cornerRadius(9)
+                    .shadow(color: StudioTheme.accentCyan.opacity(0.45), radius: 10, x: 0, y: 2)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(.plain)
                 .disabled(model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty)
+                .opacity((model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty) ? 0.45 : 1.0)
             }
         }
-        .padding(.top, 4)
+        .padding(14)
+        .background(Color.black.opacity(0.50))
+        .overlay(alignment: .top) {
+            Divider().overlay(Color.white.opacity(0.08))
+        }
     }
 
-    // MARK: – Tab: Historia
+    // MARK: – Zakładka Historia
 
-    private var historyTab: some View {
+    private var historyWorkspace: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Historia sesji zgrywań").font(.title2.bold())
+                Text("Historia sesji zgrywań")
+                    .font(.title2.bold())
+                    .foregroundStyle(Color.white)
                 Spacer()
                 if !model.history.isEmpty {
                     Button("Wyczyść historię") {
                         IngestHistory.clear()
                         model.history = []
                     }
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
             }
@@ -353,44 +521,58 @@ struct MainWindow: View {
                 Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "clock")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 40))
+                        .foregroundStyle(Color.gray.opacity(0.5))
                     Text("Brak zapisanych sesji zgrywania.")
                         .font(.headline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.gray)
                 }
                 .frame(maxWidth: .infinity)
                 Spacer()
             } else {
-                List(model.history) { record in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(record.projectName).font(.headline)
-                            Spacer()
-                            Text(record.date, style: .date)
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(model.history) { record in
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack {
+                                    Text(record.projectName)
+                                        .font(.headline)
+                                        .foregroundStyle(Color.white)
+                                    Spacer()
+                                    Text(record.date, style: .date)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.gray)
+                                }
+                                HStack(spacing: 14) {
+                                    Label("\(record.filesCopied) skopiowanych", systemImage: "doc.fill")
+                                        .foregroundStyle(StudioTheme.accentCyan)
+                                    Label(AppModel.formatBytes(record.totalBytes), systemImage: "internaldrive")
+                                        .foregroundStyle(StudioTheme.accentGreen)
+                                    Text("źródła: \(record.sourceVolumeName)")
+                                        .foregroundStyle(Color.gray)
+                                }
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+
+                                Text(record.destinationPath)
+                                    .font(.caption2)
+                                    .foregroundStyle(Color.gray.opacity(0.6))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            .padding(12)
+                            .background(StudioTheme.cardBg)
+                            .cornerRadius(10)
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.07), lineWidth: 1))
                         }
-                        HStack(spacing: 12) {
-                            Label("\(record.filesCopied) skopiowanych", systemImage: "doc.fill")
-                            Label(AppModel.formatBytes(record.totalBytes), systemImage: "internaldrive")
-                            Text("źródła: \(record.sourceVolumeName)")
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.caption)
-                        Text(record.destinationPath)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
                     }
-                    .padding(.vertical, 4)
                 }
             }
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: – Pomoc
+    // MARK: – Narzędzia pomocnicze
 
     private func chooseDestinationQuick() {
         let panel = NSOpenPanel()

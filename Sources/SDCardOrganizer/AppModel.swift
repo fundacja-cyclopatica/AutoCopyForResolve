@@ -36,6 +36,9 @@ public final class AppModel: ObservableObject {
     @Published public var newPresetInputText: String = ""
     @Published public var isShowingPresetSheet: Bool = false
 
+    /// Stan bocznego panelu ustawień w oknie
+    @Published public var isSettingsPanelOpen: Bool = false
+
     public let volumeMonitor = VolumeMonitor()
 
     private let settingsURL: URL
@@ -80,6 +83,54 @@ public final class AppModel: ObservableObject {
     /// Łączny rozmiar w bajtach do zgrania ze wszystkich zaznaczonych kart
     public var totalBytesToCopy: Int64 {
         enabledCards.reduce(0) { $0 + $1.totalSelectedBytes }
+    }
+
+    public var hasVideos: Bool {
+        enabledCards.contains { card in card.filteredFiles.contains { $0.category == .video } }
+    }
+
+    public var hasOnlyPhotos: Bool {
+        let hasP = enabledCards.contains { card in card.filteredFiles.contains { $0.category == .photo } }
+        return hasP && !hasVideos
+    }
+
+    /// Szacowany czas transferu przy prędkości magistrali
+    public var estimatedTransferInfo: String {
+        guard totalBytesToCopy > 0 else { return "Gotowy" }
+        let assumedSpeed: Double = 350 * 1024 * 1024
+        let seconds = max(1, Int(Double(totalBytesToCopy) / assumedSpeed))
+        if seconds < 60 {
+            return "~\(seconds)s (~350 MB/s)"
+        } else {
+            let mins = seconds / 60
+            let remSecs = seconds % 60
+            return "~\(mins)m \(remSecs)s (~350 MB/s)"
+        }
+    }
+
+    /// Ręczny wybór folderu lub podłączonego czytnika do slotu
+    public func addManualFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Wybierz folder lub podłączoną kartę pamięci"
+        if panel.runModal() == .OK, let url = panel.url {
+            let name = url.lastPathComponent
+            let total = (try? url.resourceValues(forKeys: [.volumeTotalCapacityKey]).volumeTotalCapacity) ?? 64_000_000_000
+            let avail = (try? url.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity) ?? 32_000_000_000
+            let defaultLabel = cardConfigs.count < defaultLabels.count ? defaultLabels[cardConfigs.count] : "Kamera \(cardConfigs.count + 1)"
+            let config = CardIngestConfig(
+                volumeURL: url,
+                volumeName: name,
+                totalCapacity: total,
+                availableCapacity: avail,
+                cameraLabel: defaultLabel,
+                isEnabled: true
+            )
+            cardConfigs.append(config)
+            scanCard(url: url)
+        }
     }
 
     // MARK: – Obsługa wykrywania kart
