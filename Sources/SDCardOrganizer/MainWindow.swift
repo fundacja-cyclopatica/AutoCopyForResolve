@@ -366,58 +366,35 @@ struct MainWindow: View {
 
             // Pasek operacyjny
             HStack(alignment: .center, spacing: 14) {
-                // Post-Action Checkboxes (DaVinci Resolve / Lightroom)
+                // Post-Action Toggle Buttons (DaVinci Resolve / Lightroom)
                 HStack(spacing: 8) {
-                    // DaVinci Resolve Switch
-                    Toggle(isOn: $model.settings.openInDaVinciResolve) {
-                        HStack(spacing: 6) {
-                            Text("Dv")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundStyle(Color.white)
-                                .frame(width: 17, height: 17)
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color(red: 234/255, green: 56/255, blue: 77/255), Color(red: 142/255, green: 14/255, blue: 0/255)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .cornerRadius(4)
-                            Text("Otwórz w DaVinci Resolve")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Color.gray.opacity(0.9))
-                        }
-                    }
-                    .toggleStyle(.checkbox)
-                    .tint(StudioTheme.accentCyan)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.03))
-                    .cornerRadius(7)
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                    // DaVinci Resolve Button
+                    LaunchToggleButton(
+                        label: "Otwórz w DaVinci Resolve",
+                        iconText: "Dv",
+                        iconGradient: LinearGradient(
+                            colors: [Color(red: 234/255, green: 56/255, blue: 77/255), Color(red: 142/255, green: 14/255, blue: 0/255)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        iconTextColor: Color.white,
+                        isOn: $model.settings.openInDaVinciResolve,
+                        themeColor: StudioTheme.accentCyan
+                    )
 
-                    // Lightroom Switch
-                    Toggle(isOn: $model.settings.openInLightroom) {
-                        HStack(spacing: 6) {
-                            Text("Lr")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundStyle(Color(red: 49/255, green: 168/255, blue: 255/255))
-                                .frame(width: 17, height: 17)
-                                .background(Color(red: 0/255, green: 29/255, blue: 52/255))
-                                .cornerRadius(4)
-                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color(red: 49/255, green: 168/255, blue: 255/255).opacity(0.4), lineWidth: 1))
-                            Text("Otwórz zdjęcia w Lightroom")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Color.gray.opacity(0.9))
-                        }
-                    }
-                    .toggleStyle(.checkbox)
-                    .tint(StudioTheme.accentBlue)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.03))
-                    .cornerRadius(7)
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                    // Lightroom Button
+                    LaunchToggleButton(
+                        label: "Otwórz zdjęcia w Lightroom",
+                        iconText: "Lr",
+                        iconGradient: LinearGradient(
+                            colors: [Color(red: 0/255, green: 29/255, blue: 52/255), Color(red: 0/255, green: 29/255, blue: 52/255)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        iconTextColor: Color(red: 49/255, green: 168/255, blue: 255/255),
+                        isOn: $model.settings.openInLightroom,
+                        themeColor: StudioTheme.accentBlue
+                    )
                 }
 
                 Spacer()
@@ -580,5 +557,49 @@ struct MainWindow: View {
         if panel.runModal() == .OK, let url = panel.url {
             model.settings.destinationRoot = url.path
         }
+    }
+}
+
+// MARK: – Launch Toggle Button (zamiast checkboxa)
+
+/// Przycisk toggle z łuną (glow) dla akcji po zgraniu (DaVinci Resolve / Lightroom).
+private struct LaunchToggleButton: View {
+    let label: String
+    let iconText: String
+    let iconGradient: LinearGradient
+    let iconTextColor: Color
+    @Binding var isOn: Bool
+    let themeColor: Color
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Text(iconText)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(iconTextColor)
+                    .frame(width: 17, height: 17)
+                    .background(iconGradient)
+                    .cornerRadius(4)
+
+                Text(label)
+                    .font(.system(size: 11, weight: isOn ? .semibold : .medium))
+                    .foregroundStyle(isOn ? Color.white : Color.gray.opacity(0.75))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isOn ? themeColor.opacity(0.25) : Color.white.opacity(0.04))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(isOn ? themeColor.opacity(0.7) : Color.white.opacity(0.08), lineWidth: 1.5)
+                    )
+            )
+            .shadow(color: isOn ? themeColor.opacity(0.5) : .clear, radius: isOn ? 8 : 0)
+        }
+        .buttonStyle(.plain)
+        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: isOn)
     }
 }

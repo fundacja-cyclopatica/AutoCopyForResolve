@@ -274,24 +274,20 @@ struct CardColumnView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.gray)
 
-            HStack(spacing: 12) {
-                Toggle(isOn: $config.includeVideos) {
-                    Text("Filmy (\(config.totalVideoCount))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(config.totalVideoCount > 0 ? Color.gray.opacity(0.9) : Color.gray.opacity(0.5))
-                }
-                .toggleStyle(.checkbox)
-                .tint(themeColor)
-                .disabled(config.totalVideoCount == 0)
+            HStack(spacing: 8) {
+                ToggleButton(
+                    label: "Filmy (\(config.totalVideoCount))",
+                    isOn: $config.includeVideos,
+                    isDisabled: config.totalVideoCount == 0,
+                    themeColor: themeColor
+                )
 
-                Toggle(isOn: $config.includePhotos) {
-                    Text("Zdjęcia (\(config.totalPhotoCount))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(config.totalPhotoCount > 0 ? Color.gray.opacity(0.9) : Color.gray.opacity(0.5))
-                }
-                .toggleStyle(.checkbox)
-                .tint(StudioTheme.accentAmber)
-                .disabled(config.totalPhotoCount == 0)
+                ToggleButton(
+                    label: "Zdjęcia (\(config.totalPhotoCount))",
+                    isOn: $config.includePhotos,
+                    isDisabled: config.totalPhotoCount == 0,
+                    themeColor: StudioTheme.accentAmber
+                )
             }
         }
         .padding(.top, 2)
@@ -475,5 +471,40 @@ struct CardColumnView: View {
         .overlay(alignment: .top) {
             Divider().overlay(Color.white.opacity(0.07))
         }
+    }
+}
+
+// MARK: – Toggle Button (zamiast checkboxa)
+
+/// Przycisk toggle z łuną (glow) — zaznaczony = zielony blask.
+private struct ToggleButton: View {
+    let label: String
+    @Binding var isOn: Bool
+    let isDisabled: Bool
+    let themeColor: Color
+
+    var body: some View {
+        Button {
+            guard !isDisabled else { return }
+            isOn.toggle()
+        } label: {
+            Text(label)
+                .font(.system(size: 11, weight: isOn ? .semibold : .regular))
+                .foregroundStyle(isOn ? Color.white : (isDisabled ? Color.gray.opacity(0.35) : Color.gray.opacity(0.75)))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isOn ? themeColor.opacity(0.35) : Color.white.opacity(0.04))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(isOn ? themeColor.opacity(0.7) : Color.white.opacity(0.08), lineWidth: 1.5)
+                        )
+                )
+                .shadow(color: isOn ? themeColor.opacity(0.55) : .clear, radius: isOn ? 8 : 0)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: isOn)
     }
 }
