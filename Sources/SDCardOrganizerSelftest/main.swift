@@ -99,10 +99,19 @@ struct SelfTest {
                 cameraLabel: "Kamera A"
             )
             let file1 = MediaFile(url: URL(fileURLWithPath: "/Volumes/Card1/clip1.mov"), category: .video, size: 100, date: Date(timeIntervalSince1970: 1000))
-            let file2 = MediaFile(url: URL(fileURLWithPath: "/Volumes/Card1/clip2.mov"), category: .video, size: 200, date: Date(timeIntervalSince1970: 1000000))
+            let file2 = MediaFile(url: URL(fileURLWithPath: "/Volumes/Card1/photo1.jpg"), category: .photo, size: 200, date: Date(timeIntervalSince1970: 1000000))
             config.setScanResults([file1, file2])
-            let filtered = config.filteredFiles
-            return config.availableDays.count > 0 && !filtered.isEmpty && config.cameraLabel == "Kamera A"
+            config.selectAllDays()
+            let all = config.filteredFiles.count
+
+            config.includePhotos = false
+            let onlyVideos = config.filteredFiles.count
+
+            config.includeVideos = false
+            config.includePhotos = true
+            let onlyPhotos = config.filteredFiles.count
+
+            return all == 2 && onlyVideos == 1 && onlyPhotos == 1 && config.cameraLabel == "Kamera A"
         }
 
         check("CopyService obsługuje podfoldery kamer") {

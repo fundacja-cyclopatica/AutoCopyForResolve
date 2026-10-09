@@ -15,6 +15,23 @@ struct MainWindow: View {
                 .tag(1)
         }
         .padding(16)
+        .alert("Zmień nazwę karty", isPresented: Binding(
+            get: { model.renamingCardURL != nil },
+            set: { if !$0 { model.renamingCardURL = nil } }
+        )) {
+            TextField("Nowa nazwa karty", text: $model.renameInputText)
+            Button("Zmień nazwę") {
+                if let url = model.renamingCardURL {
+                    model.renameCard(url: url, newName: model.renameInputText)
+                }
+                model.renamingCardURL = nil
+            }
+            Button("Anuluj", role: .cancel) {
+                model.renamingCardURL = nil
+            }
+        } message: {
+            Text("Wprowadź nową nazwę dla podłączonej karty w systemie macOS.")
+        }
     }
 
     // MARK: – Tab: Zgrywanie z wielu kart
@@ -147,6 +164,13 @@ struct MainWindow: View {
                             cardIndex: index,
                             onRescan: {
                                 model.scanCard(url: model.cardConfigs[index].volumeURL)
+                            },
+                            onEject: {
+                                model.ejectCard(url: model.cardConfigs[index].volumeURL)
+                            },
+                            onPromptRename: {
+                                model.renameInputText = model.cardConfigs[index].volumeName
+                                model.renamingCardURL = model.cardConfigs[index].volumeURL
                             }
                         )
                     }

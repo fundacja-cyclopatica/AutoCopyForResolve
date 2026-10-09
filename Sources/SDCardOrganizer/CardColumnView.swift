@@ -6,18 +6,25 @@ struct CardColumnView: View {
     @Binding var config: CardIngestConfig
     let cardIndex: Int
     let onRescan: () -> Void
+    let onEject: () -> Void
+    let onPromptRename: () -> Void
 
     private let presetLabels = ["Kamera A", "Kamera B", "Kamera C", "Dron", "GoPro", "Audio"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Nagłówek karty (ikona, nazwa, status włączenia)
+            // Nagłówek karty (ikona, nazwa, wysunięcie, status włączenia)
             cardHeader
 
             Divider()
 
             // Podpis kamery / zastosowania
             cameraLabelSection
+
+            Divider()
+
+            // Wybór typów mediów (Filmy / Zdjęcia / Audio)
+            mediaTypeSelectionSection
 
             Divider()
 
@@ -67,6 +74,17 @@ struct CardColumnView: View {
                     Text(config.volumeName)
                         .font(.headline)
                         .lineLimit(1)
+
+                    Button {
+                        onPromptRename()
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Zmień nazwę karty w systemie")
+
                     if config.isScanning {
                         ProgressView().controlSize(.mini)
                     }
@@ -81,6 +99,19 @@ struct CardColumnView: View {
 
             Spacer()
 
+            // Przycisk bezpiecznego wysunięcia karty
+            Button {
+                onEject()
+            } label: {
+                Image(systemName: "eject.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+            .help("Wysuń bezpiecznie kartę z czytnika")
+
+            // Przełącznik włączenia do sesji zgrywania
             Toggle("", isOn: $config.isEnabled)
                 .toggleStyle(.switch)
                 .labelsHidden()
@@ -115,6 +146,56 @@ struct CardColumnView: View {
                         .controlSize(.mini)
                         .tint(config.cameraLabel == preset ? .accentColor : nil)
                     }
+                }
+            }
+        }
+    }
+
+    // MARK: – Wybór typów mediów (Filmy / Zdjęcia / Audio)
+
+    private var mediaTypeSelectionSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Typy materiałów:", systemImage: "checklist")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            let totalVideos = config.scannedFiles.filter { $0.category == .video }.count
+            let totalPhotos = config.scannedFiles.filter { $0.category == .photo }.count
+            let totalAudio = config.scannedFiles.filter { $0.category == .audio }.count
+
+            HStack(spacing: 10) {
+                Toggle(isOn: $config.includeVideos) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "film")
+                            .foregroundStyle(.blue)
+                        Text("Filmy (\(totalVideos))")
+                            .font(.caption2.bold())
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .disabled(totalVideos == 0)
+
+                Toggle(isOn: $config.includePhotos) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "photo")
+                            .foregroundStyle(.orange)
+                        Text("Zdjęcia (\(totalPhotos))")
+                            .font(.caption2.bold())
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .disabled(totalPhotos == 0)
+
+                if totalAudio > 0 {
+                    Toggle(isOn: $config.includeAudio) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "waveform")
+                                .foregroundStyle(.green)
+                            Text("Audio (\(totalAudio))")
+                                .font(.caption2.bold())
+                        }
+                    }
+                    .toggleStyle(.checkbox)
                 }
             }
         }

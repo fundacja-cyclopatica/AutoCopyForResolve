@@ -28,6 +28,10 @@ public final class AppModel: ObservableObject {
     @Published public var history: [IngestRecord] = []
     @Published public var selectedTab: Int = 0
 
+    /// Dialog zmiany nazwy karty
+    @Published public var renamingCardURL: URL? = nil
+    @Published public var renameInputText: String = ""
+
     public let volumeMonitor = VolumeMonitor()
 
     private let settingsURL: URL
@@ -171,6 +175,30 @@ public final class AppModel: ObservableObject {
     public func scanAllCards() {
         for config in cardConfigs {
             scanCard(url: config.volumeURL)
+        }
+    }
+
+    // MARK: – Zarządzanie wolumenami (Wysuwanie i Zmiana nazwy)
+
+    public func ejectCard(url: URL) {
+        do {
+            try VolumeManager.eject(url: url)
+            volumeMonitor.refresh()
+            setStatus("Karta została bezpiecznie wysunięta.", isError: false)
+        } catch {
+            setStatus("Błąd wysuwania karty: \(error.localizedDescription)", isError: true)
+        }
+    }
+
+    public func renameCard(url: URL, newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            try VolumeManager.renameVolume(at: url, to: trimmed)
+            volumeMonitor.refresh()
+            setStatus("Zmieniono nazwę karty na „\(trimmed)”.", isError: false)
+        } catch {
+            setStatus("Błąd zmiany nazwy karty: \(error.localizedDescription)", isError: true)
         }
     }
 

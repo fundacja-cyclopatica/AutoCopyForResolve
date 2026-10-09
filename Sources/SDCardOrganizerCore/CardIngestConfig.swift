@@ -3,7 +3,7 @@ import Foundation
 /// Stan i konfiguracja pojedynczej karty SD podłączonej do Maca.
 public struct CardIngestConfig: Identifiable, Equatable {
     public let id: String // URL path
-    public let volumeName: String
+    public var volumeName: String
     public let volumeURL: URL
     public let totalCapacity: Int?
     public let availableCapacity: Int?
@@ -23,6 +23,11 @@ public struct CardIngestConfig: Identifiable, Equatable {
     /// Wybrane dni nagrań (jeśli puste, a availableDays niepuste -> brak wyboru)
     public var selectedDays: Set<String>
 
+    /// Filtry typów mediów dla danej karty
+    public var includeVideos: Bool
+    public var includePhotos: Bool
+    public var includeAudio: Bool
+
     /// Status operacji
     public var isScanning: Bool
     public var isCopying: Bool
@@ -37,7 +42,10 @@ public struct CardIngestConfig: Identifiable, Equatable {
         totalCapacity: Int? = nil,
         availableCapacity: Int? = nil,
         cameraLabel: String = "",
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        includeVideos: Bool = true,
+        includePhotos: Bool = true,
+        includeAudio: Bool = true
     ) {
         self.id = volumeURL.path
         self.volumeURL = volumeURL
@@ -46,6 +54,9 @@ public struct CardIngestConfig: Identifiable, Equatable {
         self.availableCapacity = availableCapacity
         self.cameraLabel = cameraLabel
         self.isEnabled = isEnabled
+        self.includeVideos = includeVideos
+        self.includePhotos = includePhotos
+        self.includeAudio = includeAudio
         self.scannedFiles = []
         self.availableDays = []
         self.selectedDays = []
@@ -57,12 +68,22 @@ public struct CardIngestConfig: Identifiable, Equatable {
         self.errorMessage = nil
     }
 
-    /// Pliki pasujące do wybranych dni
+    /// Pliki pasujące do wybranych dni oraz zaznaczonych typów (filmy/zdjęcia/audio)
     public var filteredFiles: [MediaFile] {
+        let dayFiltered: [MediaFile]
         if selectedDays.isEmpty {
-            return scannedFiles
+            dayFiltered = scannedFiles
+        } else {
+            dayFiltered = scannedFiles.filter { selectedDays.contains($0.dayString) }
         }
-        return scannedFiles.filter { selectedDays.contains($0.dayString) }
+
+        return dayFiltered.filter { file in
+            switch file.category {
+            case .video: return includeVideos
+            case .photo: return includePhotos
+            case .audio: return includeAudio
+            }
+        }
     }
 
     /// Łączny rozmiar wybranych plików
