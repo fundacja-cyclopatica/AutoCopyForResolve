@@ -141,11 +141,13 @@ private struct SettingsPane: View {
                 paneTitle("Ustawienia", subtitle: "Zmiany zapisują się automatycznie.")
 
                 destinationSection
+                backupSection
                 afterCopySection
                 cameraPresetsSection
                 fileTypesSection
                 daVinciProjectSection
                 safetySection
+                menuBarIconSection
             }
             .padding(24)
         }
@@ -181,6 +183,39 @@ private struct SettingsPane: View {
         }
     }
 
+    // MARK: Kopia zapasowa
+
+    private var backupSection: some View {
+        SettingsSection(title: "Kopia zapasowa", icon: "externaldrive.badge.checkmark") {
+            SettingsNote("Każdy plik trafia równocześnie na drugi dysk (ta sama struktura projektu, osobna weryfikacja). Karta jest czytana tylko raz — kopia powstaje z pliku zapisanego na dysku docelowym.")
+            HStack(spacing: 8) {
+                TextField("Folder kopii zapasowej (puste — wyłączona)", text: $model.settings.backupDestinationRoot)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .panelInputStyle()
+                Button("Wybierz…") { chooseBackupDestination() }
+                    .buttonStyle(PanelSecondaryButtonStyle())
+                if !model.settings.backupDestinationRoot.isEmpty {
+                    Button("Wyłącz") { model.settings.backupDestinationRoot = "" }
+                        .buttonStyle(PanelSecondaryButtonStyle())
+                }
+            }
+            if !model.settings.backupDestinationRoot.isEmpty {
+                HStack {
+                    if !model.isBackupAvailable {
+                        Text("Dysk kopii zapasowej jest niedostępny — zgrywanie poczeka, aż go podłączysz albo wyłączysz kopię.")
+                            .foregroundStyle(PanelTheme.danger)
+                    } else if let free = model.backupFreeSpace {
+                        Text("Wolne miejsce: \(AppModel.formatBytes(free))")
+                            .foregroundStyle(PanelTheme.textSecondary)
+                    }
+                    Spacer()
+                }
+                .font(.system(size: 11))
+            }
+        }
+    }
+
     // MARK: Po zgraniu
 
     private var afterCopySection: some View {
@@ -196,6 +231,18 @@ private struct SettingsPane: View {
                 description: "Przekazuje folder Zdjęcia do Lightroom Classic lub Lightroom.",
                 accent: PanelTheme.lightroomAccent,
                 isOn: $model.settings.openInLightroom
+            )
+            SettingsSwitchRow(
+                title: "Wysuń karty po udanym zgraniu",
+                description: "Tylko gdy wszystkie pliki zgrały się bez błędów i zgrywanie nie zostało anulowane.",
+                accent: PanelTheme.accent,
+                isOn: $model.settings.ejectCardsAfterIngest
+            )
+            SettingsSwitchRow(
+                title: "Zapisuj raport zgrania z sumami kontrolnymi",
+                description: "W folderze projektu powstaje Raport_zgrania_….txt i Sumy_kontrolne_….sha256 (sprawdzenie: shasum -a 256 -c).",
+                accent: PanelTheme.accent,
+                isOn: $model.settings.writeIngestReport
             )
         }
     }
@@ -302,6 +349,13 @@ private struct SettingsPane: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
+            SettingsSwitchRow(
+                title: "Zgrywaj pliki towarzyszące",
+                description: "Metadane Sony (C0001M01.XML), telemetria DJI (.SRT) i ustawienia RAW (.XMP) trafiają obok materiału.",
+                accent: PanelTheme.accent,
+                isOn: $model.settings.copySidecarFiles
+            )
+
             SettingsNote("Po zmianie typów plików karty są skanowane ponownie. Miniatury kamer (np. Sony THMBNL) są zawsze pomijane.")
         }
     }
@@ -384,7 +438,181 @@ private struct SettingsPane: View {
         }
     }
 
+    // MARK: Ikona w pasku menu
+
+    private var menuBarIconSection: some View {
+        SettingsSection(title: "Ikona w pasku menu", icon: "menubar.rectangle") {
+            HStack(spacing: 8) {
+                ForEach(MenuBarIconStyle.allCases, id: \.self) { style in
+                    iconStyleOption(style)
+                }
+            }
+
+            if model.settings.menuBarIconStyle == .custom || model.settings.customMenuBarIconPath != nil {
+                HStack(spacing: 10) {
+                    if let path = model.settings.customMenuBarIconPath, let image = NSImage(contentsOfFile: path) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .renderingMode(model.settings.customMenuBarIconIsTemplate ? .template : .original)
+                            .scaledToFit()
+                            .frame(width: 22, height: 22)
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(Color.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        Text(URL(fileURLWithPath: path).lastPathComponent)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(PanelTheme.textSecondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("Nie wgrano jeszcze własnej ikony.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PanelTheme.accent)
+                    }
+                    Spacer()
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button("Wgraj własną ikonę…") { chooseCustomIcon() }
+                    .buttonStyle(PanelSecondaryButtonStyle())
+                if model.settings.customMenuBarIconPath != nil {
+                    Button("Usuń własną ikonę") { model.removeCustomMenuBarIcon() }
+                        .buttonStyle(PanelSecondaryButtonStyle())
+                }
+                Spacer()
+            }
+
+            if model.settings.customMenuBarIconPath != nil {
+                SettingsSwitchRow(
+                    title: "Dopasuj kolor własnej ikony do paska menu",
+                    description: "Ikona jest rysowana jako kształt: biała na ciemnym pasku, czarna na jasnym. Wyłącz, aby zachować jej oryginalne kolory.",
+                    accent: PanelTheme.accent,
+                    isOn: $model.settings.customMenuBarIconIsTemplate
+                )
+            }
+
+            SettingsNote("Najlepiej PNG lub PDF z przezroczystym tłem, ok. 36×36 px (lub wektor). Ikona zostanie przeskalowana do wysokości paska menu.")
+        }
+    }
+
+    private func iconStyleOption(_ style: MenuBarIconStyle) -> some View {
+        let isSelected = model.settings.menuBarIconStyle == style
+        let isUnavailable = style == .custom && model.settings.customMenuBarIconPath == nil
+        return Button {
+            if isUnavailable {
+                chooseCustomIcon()
+            } else {
+                model.settings.menuBarIconStyle = style
+            }
+        } label: {
+            VStack(spacing: 6) {
+                HStack(spacing: 0) {
+                    iconPreview(style, onDarkBar: true)
+                    iconPreview(style, onDarkBar: false)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                Text(Self.title(of: style))
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Color.white : PanelTheme.textSecondary)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .background(isSelected ? PanelTheme.selectedButton : PanelTheme.cardInner)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(isSelected ? PanelTheme.accent.opacity(0.6) : PanelTheme.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(Self.help(of: style))
+    }
+
+    /// Podgląd ikony na ciemnym i jasnym pasku menu.
+    @ViewBuilder
+    private func iconPreview(_ style: MenuBarIconStyle, onDarkBar: Bool) -> some View {
+        let automaticColor: Color = onDarkBar ? .white : .black
+        let color: Color = {
+            switch style {
+            case .automatic, .custom: return automaticColor
+            case .white: return .white
+            case .black: return .black
+            case .accent: return PanelTheme.accent
+            }
+        }()
+        Group {
+            if style == .custom, let path = model.settings.customMenuBarIconPath, let image = NSImage(contentsOfFile: path) {
+                Image(nsImage: image)
+                    .resizable()
+                    .renderingMode(model.settings.customMenuBarIconIsTemplate ? .template : .original)
+                    .scaledToFit()
+                    .foregroundStyle(color)
+            } else if style == .custom {
+                Image(systemName: "plus")
+                    .foregroundStyle(automaticColor.opacity(0.6))
+            } else {
+                Image(systemName: "sdcard.fill")
+                    .foregroundStyle(color)
+            }
+        }
+        .font(.system(size: 13))
+        .frame(width: 16, height: 16)
+        .frame(width: 34, height: 26)
+        .background(onDarkBar ? Color(white: 0.12) : Color(white: 0.92))
+    }
+
+    private static func title(of style: MenuBarIconStyle) -> String {
+        switch style {
+        case .automatic: return "Automatyczna"
+        case .white: return "Biała"
+        case .black: return "Czarna"
+        case .accent: return "Akcent"
+        case .custom: return "Własna"
+        }
+    }
+
+    private static func help(of style: MenuBarIconStyle) -> String {
+        switch style {
+        case .automatic: return "Biała na ciemnym pasku menu, czarna na jasnym (zalecane)"
+        case .white: return "Zawsze biała"
+        case .black: return "Zawsze czarna"
+        case .accent: return "Musztardowa, gdy są podłączone karty; w przeciwnym razie automatyczna"
+        case .custom: return "Własny obraz wgrany z dysku"
+        }
+    }
+
+    private func chooseCustomIcon() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.png, .pdf, .svg, .tiff, .jpeg, .heic, .icns]
+        panel.message = "Wybierz obraz ikony do paska menu (PNG, PDF, SVG…)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try model.importCustomMenuBarIcon(from: url)
+        } catch {
+            model.setStatus(error.localizedDescription, isError: true)
+            let alert = NSAlert()
+            alert.messageText = "Nie udało się wgrać ikony"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
     // MARK: Okna wyboru
+
+    private func chooseBackupDestination() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Wybierz dysk/folder kopii zapasowej"
+        if panel.runModal() == .OK, let url = panel.url {
+            model.settings.backupDestinationRoot = url.path
+        }
+    }
 
     private func chooseDestination() {
         let panel = NSOpenPanel()

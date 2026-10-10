@@ -32,12 +32,16 @@ public struct IngestSessionSummary: Identifiable {
     public let duration: TimeInterval
     public let wasCancelled: Bool
     public let verificationEnabled: Bool
+    /// Folder projektu w kopii zapasowej (gdy była włączona).
+    public let backupDestination: URL?
 
     public var totalCopied: Int { cards.reduce(0) { $0 + $1.report.totalCopied } }
     public var totalSkipped: Int { cards.reduce(0) { $0 + $1.report.totalSkipped } }
     public var totalVerified: Int { cards.reduce(0) { $0 + $1.report.totalVerified } }
     public var totalBytes: Int64 { cards.reduce(0) { $0 + $1.report.totalBytesCopied } }
     public var failures: [FailedCopy] { cards.flatMap(\.report.failed) }
+    public var totalBackupCopied: Int { cards.reduce(0) { $0 + $1.report.backupCopied.count } }
+    public var totalSidecars: Int { cards.reduce(0) { $0 + $1.report.sidecarsCopied.count } }
 
     /// Średnia prędkość całej sesji (z weryfikacją włącznie).
     public var averageBytesPerSecond: Double? {

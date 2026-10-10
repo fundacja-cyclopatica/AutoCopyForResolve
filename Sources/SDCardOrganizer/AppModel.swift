@@ -22,7 +22,8 @@ public final class AppModel: ObservableObject {
             if settings.enabledExtensions != oldValue.enabledExtensions, !isGlobalCopying {
                 scanAllCards()
             }
-            if settings.destinationRoot != oldValue.destinationRoot {
+            if settings.destinationRoot != oldValue.destinationRoot
+                || settings.backupDestinationRoot != oldValue.backupDestinationRoot {
                 refreshDestinationInfo()
             }
         }
@@ -53,6 +54,12 @@ public final class AppModel: ObservableObject {
 
     /// Czy wybrany folder docelowy istnieje (dysk jest podłączony).
     @Published public private(set) var isDestinationAvailable = false
+
+    /// Czy folder kopii zapasowej istnieje (gdy kopia zapasowa jest włączona).
+    @Published public private(set) var isBackupAvailable = false
+
+    /// Wolne miejsce w miejscu kopii zapasowej.
+    @Published public private(set) var backupFreeSpace: Int64?
 
     /// Stan globalny zgrywania
     @Published public var isGlobalCopying: Bool = false
@@ -139,22 +146,73 @@ public final class AppModel: ObservableObject {
             && isDirectory.boolValue
         existingProjects = isDestinationAvailable ? ProjectCatalog.projects(in: root) : []
 
-        if isDestinationAvailable {
-            let values = try? URL(fileURLWithPath: root, isDirectory: true).resourceValues(forKeys: [
-                .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey
-            ])
-            let important = values?.volumeAvailableCapacityForImportantUsage
-            let plain = values?.volumeAvailableCapacity.map(Int64.init)
-            destinationFreeSpace = (important != nil || plain != nil) ? max(important ?? 0, plain ?? 0) : nil
-        } else {
-            destinationFreeSpace = nil
-        }
+        destinationFreeSpace = isDestinationAvailable ? Self.freeSpace(at: root) : nil
+
+        let backupRoot = settings.backupDestinationRoot
+        var isBackupDirectory: ObjCBool = false
+        isBackupAvailable = !backupRoot.isEmpty
+            && FileManager.default.fileExists(atPath: backupRoot, isDirectory: &isBackupDirectory)
+            && isBackupDirectory.boolValue
+        backupFreeSpace = isBackupAvailable ? Self.freeSpace(at: backupRoot) : nil
+    }
+
+    /// Wolne miejsce na wolumenie, na którym leży `path`.
+    private static func freeSpace(at path: String) -> Int64? {
+        let values = try? URL(fileURLWithPath: path, isDirectory: true).resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey
+        ])
+        let important = values?.volumeAvailableCapacityForImportantUsage
+        let plain = values?.volumeAvailableCapacity.map(Int64.init)
+        return (important != nil || plain != nil) ? max(important ?? 0, plain ?? 0) : nil
+    }
+
+    /// Nazwa wolumenu kopii zapasowej (np. „BACKUP HDD”).
+    public var backupVolumeName: String? {
+        guard isBackupAvailable else { return nil }
+        return (try? URL(fileURLWithPath: settings.backupDestinationRoot).resourceValues(forKeys: [.volumeNameKey]))?.volumeName
     }
 
     /// Nazwa wolumenu, na którym leży folder docelowy (np. „MONTAŻ SSD”).
     public var destinationVolumeName: String? {
         guard isDestinationAvailable else { return nil }
         return (try? URL(fileURLWithPath: settings.destinationRoot).resourceValues(forKeys: [.volumeNameKey]))?.volumeName
+    }
+
+    // MARK: – Własna ikona w pasku menu
+
+    /// Kopiuje wybrany obraz do Application Support (ikona działa dalej, nawet gdy oryginał
+    /// zostanie przeniesiony) i ustawia go jako ikonę w pasku menu.
+    public func importCustomMenuBarIcon(from source: URL) throws {
+        guard NSImage(contentsOf: source) != nil else {
+            throw NSError(domain: "SDCardOrganizer", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Nie udało się odczytać obrazu „\(source.lastPathComponent)”."
+            ])
+        }
+        let directory = settingsURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ext = source.pathExtension.isEmpty ? "png" : source.pathExtension.lowercased()
+        let target = directory.appendingPathComponent("MenuBarIcon-\(UUID().uuidString.prefix(8)).\(ext)")
+        try FileManager.default.copyItem(at: source, to: target)
+
+        removeStoredCustomIcon()
+        settings.customMenuBarIconPath = target.path
+        settings.menuBarIconStyle = .custom
+    }
+
+    /// Usuwa własną ikonę i wraca do ikony automatycznej.
+    public func removeCustomMenuBarIcon() {
+        removeStoredCustomIcon()
+        settings.customMenuBarIconPath = nil
+        if settings.menuBarIconStyle == .custom {
+            settings.menuBarIconStyle = .automatic
+        }
+    }
+
+    /// Kasuje plik poprzedniej własnej ikony (tylko kopię w folderze aplikacji).
+    private func removeStoredCustomIcon() {
+        guard let path = settings.customMenuBarIconPath,
+              path.hasPrefix(settingsURL.deletingLastPathComponent().path) else { return }
+        try? FileManager.default.removeItem(atPath: path)
     }
 
     /// Dogrywanie do projektu, który już istnieje na dysku (także z innego dnia).
@@ -193,6 +251,9 @@ public final class AppModel: ObservableObject {
         }
         if !isDestinationAvailable {
             return "Dysk docelowy jest niedostępny — podłącz go."
+        }
+        if !settings.backupDestinationRoot.isEmpty && !isBackupAvailable {
+            return "Dysk kopii zapasowej jest niedostępny — podłącz go albo wyłącz kopię w ustawieniach."
         }
         if projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Wpisz nazwę projektu."
@@ -463,16 +524,37 @@ public final class AppModel: ObservableObject {
         }
 
         let destination = URL(fileURLWithPath: settings.destinationRoot, isDirectory: true)
+        let backupRoot = settings.backupDestinationRoot
+        let backupDestination = backupRoot.isEmpty ? nil : URL(fileURLWithPath: backupRoot, isDirectory: true)
         let filesToCopy = cardsToIngest.flatMap(\.filteredFiles)
-        if let problem = preflightProblem(destination: destination, files: filesToCopy) {
+        let selectedBytes = filesToCopy.reduce(Int64(0)) { $0 + $1.size }
+
+        if let problem = preflightProblem(destination: destination, files: filesToCopy, label: "Dysk docelowy") {
             setStatus(problem, isError: true)
             return
         }
-        guard confirmFreeSpace(destination: destination, requiredBytes: filesToCopy.reduce(0) { $0 + $1.size }) else {
+        if let backupDestination {
+            guard backupDestination.standardizedFileURL != destination.standardizedFileURL else {
+                setStatus("Kopia zapasowa musi trafiać na inny dysk lub folder niż dysk docelowy.", isError: true)
+                return
+            }
+            if let problem = preflightProblem(destination: backupDestination, files: filesToCopy, label: "Dysk kopii zapasowej") {
+                setStatus(problem, isError: true)
+                return
+            }
+        }
+        guard confirmFreeSpace(destination: destination, requiredBytes: selectedBytes, label: "dysku docelowym") else {
             return
         }
+        if let backupDestination {
+            guard confirmFreeSpace(destination: backupDestination, requiredBytes: selectedBytes, label: "dysku kopii zapasowej") else {
+                return
+            }
+        }
 
-        let totalBytesAllCards = filesToCopy.reduce(Int64(0)) { $0 + $1.size }
+        // Z kopią zapasową każdy plik zapisujemy dwa razy — postęp obejmuje oba zapisy.
+        let destinationCount: Int64 = backupDestination == nil ? 1 : 2
+        let totalBytesAllCards = selectedBytes * destinationCount
         let cancellation = CancellationToken()
         let settings = self.settings
         let projectDate = self.projectDate ?? Date()
@@ -491,6 +573,14 @@ public final class AppModel: ObservableObject {
             do {
                 let builder = ProjectBuilder(settings: settings)
                 let layout = try builder.build(projectName: name, date: projectDate)
+
+                // Ta sama struktura projektu (z manifestem i .drp) w miejscu kopii zapasowej.
+                var backupLayout: ProjectLayout?
+                if !backupRoot.isEmpty {
+                    var backupSettings = settings
+                    backupSettings.destinationRoot = backupRoot
+                    backupLayout = try ProjectBuilder(settings: backupSettings).build(projectName: name, date: projectDate)
+                }
 
                 var results: [IngestSessionSummary.CardResult] = []
                 var processedBefore: Int64 = 0
@@ -513,6 +603,7 @@ public final class AppModel: ObservableObject {
                     let service = CopyService(
                         verifyChecksums: settings.verifyChecksums,
                         verifyCopies: settings.verifyCopies,
+                        copySidecars: settings.copySidecarFiles,
                         cancellation: cancellation
                     )
                     service.onProgress = { [weak self] progress in
@@ -547,11 +638,15 @@ public final class AppModel: ObservableObject {
                     let report = try service.copy(
                         files: card.filteredFiles,
                         to: layout,
-                        cameraLabel: card.cameraLabel
+                        cameraLabel: card.cameraLabel,
+                        backupLayout: backupLayout
                     )
 
-                    processedBefore += card.totalSelectedBytes
+                    processedBefore += card.totalSelectedBytes * destinationCount
                     transferredBefore += report.totalBytesCopied
+                        + report.backupCopied.reduce(Int64(0)) { total, url in
+                            total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
+                        }
                     results.append(IngestSessionSummary.CardResult(
                         id: card.id,
                         title: card.cameraLabel.isEmpty ? card.volumeName : "\(card.cameraLabel) (\(card.volumeName))",
@@ -576,9 +671,10 @@ public final class AppModel: ObservableObject {
                     cards: results,
                     duration: Date().timeIntervalSince(startedAt),
                     wasCancelled: cancellation.isCancelled,
-                    verificationEnabled: settings.verifyCopies
+                    verificationEnabled: settings.verifyCopies,
+                    backupDestination: backupLayout?.root
                 )
-                self.finishBatch(session, settings: settings, layout: layout)
+                self.finishBatch(session, settings: settings, layout: layout, backupLayout: backupLayout)
             } catch {
                 DispatchQueue.main.async {
                     self.isGlobalCopying = false
@@ -592,7 +688,12 @@ public final class AppModel: ObservableObject {
 
     /// Kończy sesję: historia, aplikacje docelowe, komunikat, powiadomienie i arkusz podsumowania.
     /// Wywoływane z wątku zgrywania.
-    private func finishBatch(_ session: IngestSessionSummary, settings: Settings, layout: ProjectLayout) {
+    private func finishBatch(
+        _ session: IngestSessionSummary,
+        settings: Settings,
+        layout: ProjectLayout,
+        backupLayout: ProjectLayout?
+    ) {
         let failedCount = session.failures.count
         let record = IngestRecord(
             projectName: session.projectName,
@@ -604,6 +705,24 @@ public final class AppModel: ObservableObject {
             totalBytes: session.totalBytes
         )
         IngestHistory.append(record)
+
+        // Raport zgrania z sumami kontrolnymi — w projekcie i w kopii zapasowej.
+        var reportProblem: String?
+        if settings.writeIngestReport {
+            let sections = session.cards.map { IngestReportWriter.Section(title: $0.title, report: $0.report) }
+            for root in [layout.root] + (backupLayout.map { [$0.root] } ?? []) {
+                do {
+                    try IngestReportWriter.write(
+                        projectRoot: root,
+                        projectName: session.projectName,
+                        sections: sections,
+                        wasCancelled: session.wasCancelled
+                    )
+                } catch {
+                    reportProblem = "Nie udało się zapisać raportu zgrania: \(error.localizedDescription)"
+                }
+            }
+        }
 
         // Zapamiętaj zmierzoną prędkość do szacowania czasu następnych zgrań.
         if let speed = session.averageBytesPerSecond, session.duration >= 3 {
@@ -631,8 +750,19 @@ public final class AppModel: ObservableObject {
         if session.totalSkipped > 0 {
             message += " Pominięto duplikaty: \(session.totalSkipped)."
         }
+        if session.backupDestination != nil && session.totalBackupCopied > 0 {
+            message += " Kopia zapasowa: \(session.totalBackupCopied)."
+        }
         if let firstFailure = session.failures.first {
             message += " Błędy: \(failedCount) — m.in. \(firstFailure.url.lastPathComponent): \(firstFailure.error)"
+        }
+        if let reportProblem {
+            message += " \(reportProblem)"
+        }
+        // Automatyczne wysunięcie kart — tylko po pełnym zgraniu bez błędów.
+        let ejectsCards = settings.ejectCardsAfterIngest && session.isSafeToEject
+        if ejectsCards {
+            message += " Karty zostały wysunięte."
         }
 
         DispatchQueue.main.async {
@@ -644,6 +774,11 @@ public final class AppModel: ObservableObject {
             self.setStatus(message, isError: failedCount > 0 || session.wasCancelled)
             self.lastSession = session
             self.refreshDestinationInfo()
+            if ejectsCards {
+                self.ejectCards(of: session)
+                // Komunikaty pojedynczych wysunięć nie zastępują podsumowania zgrania.
+                self.setStatus(message, isError: false)
+            }
 
             if session.wasCancelled {
                 self.sendNotification(
@@ -690,19 +825,19 @@ public final class AppModel: ObservableObject {
     // MARK: – Sprawdzenie dysku docelowego przed zgrywaniem
 
     /// Zwraca opis problemu, przez który zgrywanie nie może się udać, albo `nil`.
-    private func preflightProblem(destination: URL, files: [MediaFile]) -> String? {
+    private func preflightProblem(destination: URL, files: [MediaFile], label: String) -> String? {
         let fm = FileManager.default
         var isDirectory: ObjCBool = false
         guard fm.fileExists(atPath: destination.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return "Dysk docelowy „\(destination.path)” jest niedostępny. Sprawdź, czy jest podłączony."
+            return "\(label) „\(destination.path)” jest niedostępny. Sprawdź, czy jest podłączony."
         }
         guard fm.isWritableFile(atPath: destination.path) else {
-            return "Brak uprawnień do zapisu na dysku docelowym „\(destination.path)”."
+            return "\(label): brak uprawnień do zapisu w „\(destination.path)”."
         }
         // FAT32 przyjmuje pliki do 4 GB — dłuższy klip i tak by się nie skopiował.
         if let maxFileSize = (try? destination.resourceValues(forKeys: [.volumeMaximumFileSizeKey]))?.volumeMaximumFileSize,
            let tooLarge = files.first(where: { $0.size > Int64(maxFileSize) }) {
-            return "Dysk docelowy nie przyjmie pliku \(tooLarge.url.lastPathComponent) (\(AppModel.formatBytes(tooLarge.size))) — "
+            return "\(label) nie przyjmie pliku \(tooLarge.url.lastPathComponent) (\(AppModel.formatBytes(tooLarge.size))) — "
                 + "limit systemu plików to \(AppModel.formatBytes(Int64(maxFileSize))). Użyj dysku sformatowanego jako APFS lub exFAT."
         }
         return nil
@@ -710,7 +845,7 @@ public final class AppModel: ObservableObject {
 
     /// Gdy wybrane materiały mogą się nie zmieścić, pyta użytkownika, czy mimo to zgrywać.
     /// Nie blokuje twardo, bo pliki zgrane już wcześniej do projektu zostaną pominięte.
-    private func confirmFreeSpace(destination: URL, requiredBytes: Int64) -> Bool {
+    private func confirmFreeSpace(destination: URL, requiredBytes: Int64, label: String) -> Bool {
         let values = try? destination.resourceValues(forKeys: [
             .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey
         ])
@@ -725,7 +860,7 @@ public final class AppModel: ObservableObject {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Na dysku docelowym może zabraknąć miejsca"
+        alert.messageText = "Na \(label) może zabraknąć miejsca"
         alert.informativeText = "Wybrane materiały zajmują \(AppModel.formatBytes(requiredBytes)), "
             + "a wolne jest \(AppModel.formatBytes(available)). Pliki zgrane już wcześniej do tego projektu "
             + "zostaną pominięte, więc faktycznie może być potrzebne mniej miejsca."

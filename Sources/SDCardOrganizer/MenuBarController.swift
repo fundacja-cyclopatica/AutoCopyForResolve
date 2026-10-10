@@ -46,10 +46,11 @@ public final class MenuBarController: NSObject {
 
     private func observeModel() {
         // Obserwuj zmiany stanu kart i postępu zgrywania
-        Publishers.Merge3(
+        Publishers.Merge4(
             model.$cardConfigs.map { _ in () },
             model.$isGlobalCopying.map { _ in () },
-            model.$overallProgress.map { _ in () }
+            model.$overallProgress.map { _ in () },
+            model.$settings.map { _ in () }
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in
@@ -62,18 +63,25 @@ public final class MenuBarController: NSObject {
         guard let button = statusItem.button else { return }
         button.highlight(panelController?.isVisible ?? false)
 
-        if model.isGlobalCopying {
-            button.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath.circle.fill", accessibilityDescription: "Zgrywanie")
-            button.title = " \(Int(model.overallProgress * 100))%"
-        } else {
-            let symbolName = model.cardConfigs.isEmpty ? "sdcard" : "sdcard.fill"
-            button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "SD Organizer")
-            button.title = ""
+        let settings = model.settings
+        let hasCards = !model.cardConfigs.isEmpty
+
+        var image: NSImage?
+        if settings.menuBarIconStyle == .custom, let path = settings.customMenuBarIconPath {
+            image = MenuBarIcon.customImage(at: path, isTemplate: settings.customMenuBarIconIsTemplate)
         }
-        // Musztardowa ikona, gdy są karty do zgrania (jak w projekcie panelu)
-        button.contentTintColor = model.cardConfigs.isEmpty
-            ? nil
-            : NSColor(red: 249/255, green: 169/255, blue: 2/255, alpha: 1)
+        if image == nil {
+            if model.isGlobalCopying {
+                image = MenuBarIcon.symbol("arrow.triangle.2.circlepath.circle.fill")
+            } else {
+                image = MenuBarIcon.symbol(hasCards ? "sdcard.fill" : "sdcard")
+            }
+        }
+        button.image = image
+        button.imagePosition = .imageLeading
+        button.title = model.isGlobalCopying ? " \(Int(model.overallProgress * 100))%" : ""
+        // Bez wymuszonego koloru ikona szablonowa jest biała na ciemnym pasku i czarna na jasnym.
+        button.contentTintColor = MenuBarIcon.tint(for: settings.menuBarIconStyle, hasCards: hasCards)
     }
 
     @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton) {

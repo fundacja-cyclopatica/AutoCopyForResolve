@@ -400,6 +400,31 @@ struct SelfTest {
             return config.areLatestDaysSelected(3) && config.filteredFiles.count == 3
         }
 
+        check("Kopia zapasowa, pliki towarzyszące i raport zgrania") {
+            let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: base) }
+            let card = base.appendingPathComponent("card")
+            try! FileManager.default.createDirectory(at: card, withIntermediateDirectories: true)
+            try! Data(repeating: 7, count: 50_000).write(to: card.appendingPathComponent("C0001.MP4"))
+            try! "<xml/>".data(using: .utf8)!.write(to: card.appendingPathComponent("C0001M01.XML"))
+            let files = try! MediaScanner(enabledExtensions: ["mp4"]).scan(volumeRoot: card)
+            let primary = ProjectLayout(destinationRoot: base.appendingPathComponent("ssd").path, projectName: "Test")
+            let backup = ProjectLayout(destinationRoot: base.appendingPathComponent("hdd").path, projectName: "Test")
+
+            let report = try! CopyService(verifyChecksums: false, verifyCopies: true, copySidecars: true)
+                .copy(files: files, to: primary, backupLayout: backup)
+            let written = try! IngestReportWriter.write(
+                projectRoot: primary.root, projectName: "Test",
+                sections: [.init(title: "Kamera A", report: report)], wasCancelled: false
+            )
+            let checksumLines = ((try? String(contentsOf: written.checksums!, encoding: .utf8)) ?? "")
+                .split(separator: "\n")
+            return report.totalCopied == 1 && report.backupCopied.count == 1
+                && report.sidecarsCopied.count == 2
+                && FileManager.default.fileExists(atPath: backup.videoDir.appendingPathComponent("C0001M01.XML").path)
+                && checksumLines.count == 1 && checksumLines[0].hasSuffix("  Video/C0001.MP4")
+        }
+
         print("")
         print("Wynik: \(passed) zdało, \(failed) nie zdało.")
         if failed > 0 { exit(1) }

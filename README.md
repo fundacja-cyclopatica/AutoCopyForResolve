@@ -126,6 +126,18 @@ Tests/
 
 ## Uwagi
 
+- **Kopia zapasowa** (Ustawienia → Kopia zapasowa): każdy plik trafia równocześnie na drugi
+  dysk w tej samej strukturze projektu, z osobną weryfikacją. Kopia powstaje z pliku zapisanego
+  na dysku docelowym, więc karta jest czytana tylko raz.
+- **Raport zgrania**: w folderze projektu (i w kopii zapasowej) powstaje `Raport_zgrania_….txt`
+  oraz `Sumy_kontrolne_….sha256`. Sprawdzenie materiału później:
+  `cd <folder projektu> && shasum -a 256 -c Sumy_kontrolne_….sha256`.
+- **Pliki towarzyszące**: metadane Sony (`C0001M01.XML`), telemetria DJI (`.SRT`) i ustawienia
+  RAW (`.XMP`) są zgrywane obok materiału (nazwa podąża za nazwą klipu).
+- **Automatyczne wysuwanie**: opcjonalnie karty są wysuwane po zgraniu bez błędów.
+- **Ikona w pasku menu**: domyślnie dopasowuje kolor do paska (biała na ciemnym, czarna na
+  jasnym); w ustawieniach można wybrać białą, czarną, musztardową albo wgrać własną.
+
 - Karty exFAT/FAT32: FAT32 nie obsługuje plików > 4 GB.
 - Każda kopia jest domyślnie weryfikowana sumą kontrolną SHA-256: karta jest czytana raz
   (kopiowanie i liczenie sumy w jednym przebiegu), a zapisany plik jest odczytywany ponownie

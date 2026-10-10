@@ -320,6 +320,27 @@ struct MenuBarPanelView: View {
                               ? "Dogrywanie do istniejącego folderu projektu"
                               : "Nowy folder projektu")
                 }
+
+                // Druga kopia zapasowa (gdy włączona w ustawieniach)
+                if !model.settings.backupDestinationRoot.isEmpty {
+                    HStack(spacing: 5) {
+                        Image(systemName: "externaldrive.badge.checkmark")
+                            .font(.system(size: 10))
+                        Text("Kopia zapasowa: \(model.backupVolumeName ?? URL(fileURLWithPath: model.settings.backupDestinationRoot).lastPathComponent)")
+                            .lineLimit(1)
+                        if !model.isBackupAvailable {
+                            Text("niedostępna")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(PanelTheme.danger)
+                        } else if let free = model.backupFreeSpace {
+                            Text("• wolne \(AppModel.formatBytes(free))")
+                                .foregroundStyle(free < model.totalBytesToCopy ? PanelTheme.danger : PanelTheme.textSecondary)
+                        }
+                    }
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PanelTheme.textSecondary)
+                    .help("Każdy plik trafia też do kopii zapasowej: \(model.settings.backupDestinationRoot)")
+                }
             }
 
             Spacer(minLength: 6)
@@ -663,6 +684,12 @@ private struct PanelSessionResult: View {
         }
         if session.totalSkipped > 0 {
             parts.append("pominięto \(session.totalSkipped)")
+        }
+        if session.backupDestination != nil {
+            parts.append("kopia zapasowa \(session.totalBackupCopied)")
+        }
+        if session.totalSidecars > 0 {
+            parts.append("pliki towarzyszące \(session.totalSidecars)")
         }
         if !session.failures.isEmpty {
             parts.append(PolishPlural.errors(session.failures.count))

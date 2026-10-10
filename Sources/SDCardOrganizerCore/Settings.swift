@@ -1,5 +1,19 @@
 import Foundation
 
+/// Wygląd ikony aplikacji w pasku menu.
+public enum MenuBarIconStyle: String, Codable, CaseIterable {
+    /// Kolor dopasowany do paska menu (biała na ciemnym, czarna na jasnym) — ikona szablonowa.
+    case automatic
+    /// Zawsze biała.
+    case white
+    /// Zawsze czarna.
+    case black
+    /// Musztardowa, gdy są podłączone karty; w przeciwnym razie automatyczna.
+    case accent
+    /// Własny plik graficzny wgrany w ustawieniach.
+    case custom
+}
+
 /// Trwałe ustawienia aplikacji, zapisywane jako JSON w Application Support.
 public struct Settings: Codable, Equatable {
     /// Domyślna lista rozszerzeń (wszystkie obsługiwane poza podglądami DJI `.LRF`).
@@ -38,6 +52,28 @@ public struct Settings: Codable, Equatable {
     /// Ścieżka do wzorcowego pliku .drp używanego jako szablon projektu.
     public var drpTemplatePath: String?
 
+    /// Druga kopia zapasowa: folder, do którego materiał trafia równocześnie z dyskiem
+    /// docelowym (ta sama struktura projektu). Pusty — kopia zapasowa wyłączona.
+    public var backupDestinationRoot: String
+
+    /// Automatycznie wysuń karty po zgraniu bez błędów (i bez anulowania).
+    public var ejectCardsAfterIngest: Bool
+
+    /// Zgrywaj pliki towarzyszące (Sony XML, DJI SRT, XMP) razem z materiałem.
+    public var copySidecarFiles: Bool
+
+    /// Zapisuj w folderze projektu raport zgrania z listą plików i sumami SHA-256.
+    public var writeIngestReport: Bool
+
+    /// Wygląd ikony w pasku menu.
+    public var menuBarIconStyle: MenuBarIconStyle
+
+    /// Ścieżka własnej ikony (kopia w Application Support), używana przy stylu `.custom`.
+    public var customMenuBarIconPath: String?
+
+    /// Czy własną ikonę traktować jako szablon (kolor dopasowany do paska menu).
+    public var customMenuBarIconIsTemplate: Bool
+
     public init(
         destinationRoot: String = "",
         enabledExtensions: Set<String> = Settings.defaultExtensions,
@@ -48,7 +84,14 @@ public struct Settings: Codable, Equatable {
         frameRate: Double = 25,
         verifyChecksums: Bool = false,
         verifyCopies: Bool = true,
-        drpTemplatePath: String? = nil
+        drpTemplatePath: String? = nil,
+        backupDestinationRoot: String = "",
+        ejectCardsAfterIngest: Bool = false,
+        copySidecarFiles: Bool = true,
+        writeIngestReport: Bool = true,
+        menuBarIconStyle: MenuBarIconStyle = .automatic,
+        customMenuBarIconPath: String? = nil,
+        customMenuBarIconIsTemplate: Bool = true
     ) {
         self.destinationRoot = destinationRoot
         self.enabledExtensions = enabledExtensions
@@ -60,11 +103,20 @@ public struct Settings: Codable, Equatable {
         self.verifyChecksums = verifyChecksums
         self.verifyCopies = verifyCopies
         self.drpTemplatePath = drpTemplatePath
+        self.backupDestinationRoot = backupDestinationRoot
+        self.ejectCardsAfterIngest = ejectCardsAfterIngest
+        self.copySidecarFiles = copySidecarFiles
+        self.writeIngestReport = writeIngestReport
+        self.menuBarIconStyle = menuBarIconStyle
+        self.customMenuBarIconPath = customMenuBarIconPath
+        self.customMenuBarIconIsTemplate = customMenuBarIconIsTemplate
     }
 
     private enum CodingKeys: String, CodingKey {
         case destinationRoot, enabledExtensions, cameraPresets, openInDaVinciResolve, openInLightroom,
-             resolution, frameRate, verifyChecksums, verifyCopies, drpTemplatePath
+             resolution, frameRate, verifyChecksums, verifyCopies, drpTemplatePath,
+             backupDestinationRoot, ejectCardsAfterIngest, copySidecarFiles, writeIngestReport,
+             menuBarIconStyle, customMenuBarIconPath, customMenuBarIconIsTemplate
     }
 
     /// Dekodowanie odporne na zmiany formatu: brakujące lub nieprawidłowe pola przyjmują
@@ -87,6 +139,14 @@ public struct Settings: Codable, Equatable {
         self.verifyChecksums = value(Bool.self, .verifyChecksums) ?? defaults.verifyChecksums
         self.verifyCopies = value(Bool.self, .verifyCopies) ?? defaults.verifyCopies
         self.drpTemplatePath = value(String.self, .drpTemplatePath) ?? defaults.drpTemplatePath
+        self.backupDestinationRoot = value(String.self, .backupDestinationRoot) ?? defaults.backupDestinationRoot
+        self.ejectCardsAfterIngest = value(Bool.self, .ejectCardsAfterIngest) ?? defaults.ejectCardsAfterIngest
+        self.copySidecarFiles = value(Bool.self, .copySidecarFiles) ?? defaults.copySidecarFiles
+        self.writeIngestReport = value(Bool.self, .writeIngestReport) ?? defaults.writeIngestReport
+        self.menuBarIconStyle = value(MenuBarIconStyle.self, .menuBarIconStyle) ?? defaults.menuBarIconStyle
+        self.customMenuBarIconPath = value(String.self, .customMenuBarIconPath) ?? defaults.customMenuBarIconPath
+        self.customMenuBarIconIsTemplate = value(Bool.self, .customMenuBarIconIsTemplate)
+            ?? defaults.customMenuBarIconIsTemplate
     }
 
     /// Domyślna ścieżka pliku ustawień w katalogu Application Support użytkownika.

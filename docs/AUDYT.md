@@ -246,15 +246,15 @@ przełączniki filtrów, które w trakcie i tak nic nie zmieniają, a mylą.
 
 | Funkcja | Wartość | Nakład |
 |---|---|---|
-| Weryfikacja kopii (xxHash) + raport/MHL | Bezpieczne formatowanie kart | Średni |
-| **Druga kopia zapasowa** (zapis równocześnie na 2 dyski) | Standard na planie | Średni |
-| Preflight: miejsce, montowanie, FAT32 | Brak porażek w połowie | Mały |
+| ✅ Weryfikacja kopii (xxHash) + raport/MHL | Bezpieczne formatowanie kart | Średni |
+| ✅ **Druga kopia zapasowa** (zapis równocześnie na 2 dyski) | Standard na planie | Średni |
+| ✅ Preflight: miejsce, montowanie, FAT32 | Brak porażek w połowie | Mały |
 | Wznawianie / pomijanie już zgranych plików (indeks projektu) | Szybkie dogrywanie | Średni |
 | Równoległe kopiowanie z różnych czytników | 2–4× szybciej przy wielu kartach | Średni |
 | Szablon nazw plików (`{data}_{kamera}_{oryginał}`) | Porządek w Resolve | Mały |
-| Automatyczne wysunięcie kart po zweryfikowanym zgraniu | Mniej klikania | Mały |
+| ✅ Automatyczne wysunięcie kart po zweryfikowanym zgraniu | Mniej klikania | Mały |
 | Profile ustawień (np. „Wesele”, „Reklama”) | Szybka zmiana konfiguracji | Mały |
-| Zachowanie plików sidecar (XML Sony, SRT DJI) | Metadane w Resolve | Mały |
+| ✅ Zachowanie plików sidecar (XML Sony, SRT DJI) | Metadane w Resolve | Mały |
 | Prawdziwy projekt Resolve przez API skryptowe¹ (biny per kamera, ustawienia timeline) | Gotowy projekt zamiast pustego `.drp` | Duży |
 
 ¹ Zewnętrzne skryptowanie Resolve (`DaVinciResolveScript`) w pełni działa w wersji Studio. W
