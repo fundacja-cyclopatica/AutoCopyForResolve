@@ -1,7 +1,16 @@
 import SwiftUI
+import AppKit
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    // Aplikacja żyje w pasku menu — zamknięcie okna głównego nie może jej kończyć.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+}
 
 @main
 struct SDCardOrganizerApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model: AppModel
     private var menuBarController: MenuBarController
 
