@@ -334,6 +334,42 @@ struct SelfTest {
             return results.map(\.url.lastPathComponent) == ["C0001.MP4"]
         }
 
+        check("Postęp w bajtach i anulowanie bez pozostawionych plików") {
+            let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: base) }
+            let card = base.appendingPathComponent("card")
+            try! FileManager.default.createDirectory(at: card, withIntermediateDirectories: true)
+            try! Data(repeating: 1, count: 1_000).write(to: card.appendingPathComponent("C0001.MP4"))
+            try! Data(repeating: 2, count: 20_000_000).write(to: card.appendingPathComponent("C0002.MP4"))
+            let files = try! MediaScanner(enabledExtensions: ["mp4"]).scan(volumeRoot: card)
+                .sorted { $0.url.lastPathComponent < $1.url.lastPathComponent }
+            let layout = ProjectLayout(destinationRoot: base.appendingPathComponent("dest").path, projectName: "Test")
+
+            // Anulowanie w trakcie drugiego (dużego) pliku.
+            let token = CancellationToken()
+            let service = CopyService(verifyChecksums: false, verifyCopies: true, cancellation: token)
+            var sawPartialProgress = false
+            service.onProgress = { progress in
+                if progress.filesDone == 1 && progress.processedBytes > 1_000 {
+                    sawPartialProgress = true
+                    token.cancel()
+                }
+            }
+            let report = try! service.copy(files: files, to: layout)
+            let left = ((try? FileManager.default.contentsOfDirectory(atPath: layout.videoDir.path)) ?? []).sorted()
+            return sawPartialProgress && report.wasCancelled && report.totalCopied == 1
+                && report.totalFailed == 0 && left == ["C0001.MP4"]
+        }
+
+        check("Miernik prędkości uśrednia w oknie czasowym") {
+            var meter = TransferRateMeter(window: 5)
+            meter.add(totalBytes: 0, at: 100)
+            meter.add(totalBytes: 100_000_000, at: 101)
+            let rate = meter.bytesPerSecond ?? 0
+            let eta = meter.secondsRemaining(forRemainingBytes: 200_000_000) ?? 0
+            return abs(rate - 100_000_000) < 1 && abs(eta - 2) < 0.001
+        }
+
         print("")
         print("Wynik: \(passed) zdało, \(failed) nie zdało.")
         if failed > 0 { exit(1) }

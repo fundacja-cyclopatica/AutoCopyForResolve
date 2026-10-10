@@ -18,6 +18,48 @@ public struct FailedCopy: Equatable {
     }
 }
 
+/// Bezpieczna wątkowo flaga anulowania zgrywania — ustawiana z interfejsu,
+/// sprawdzana przez `CopyService` między plikami i w trakcie kopiowania każdego pliku.
+public final class CancellationToken {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    public init() {}
+
+    public var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    public func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+}
+
+/// Postęp zgrywania jednej partii plików (jednej karty).
+public struct CopyProgress {
+    /// Bajty plików już obsłużonych (skopiowanych, pominiętych lub nieudanych)
+    /// powiększone o skopiowaną część bieżącego pliku.
+    public let processedBytes: Int64
+    /// Bajty faktycznie przeniesione z karty (bez pominiętych duplikatów) — do liczenia prędkości.
+    public let transferredBytes: Int64
+    public let totalBytes: Int64
+    public let filesDone: Int
+    public let totalFiles: Int
+    public let currentFile: URL
+
+    /// Postęp 0.0...1.0 liczony w bajtach (gdy rozmiary są nieznane — w plikach).
+    public var fraction: Double {
+        if totalBytes > 0 {
+            return min(1, Double(processedBytes) / Double(totalBytes))
+        }
+        return totalFiles > 0 ? Double(filesDone) / Double(totalFiles) : 1
+    }
+}
+
 /// Raport z całego zgrywania.
 public struct CopyReport: Equatable {
     public var copied: [URL] = []
@@ -26,6 +68,8 @@ public struct CopyReport: Equatable {
     /// Skopiowane pliki, których zgodność z oryginałem potwierdzono sumą kontrolną.
     public var verified: [URL] = []
     public var totalBytesCopied: Int64 = 0
+    /// Zgrywanie przerwane przez użytkownika — pozostałe pliki nie były przetwarzane.
+    public var wasCancelled = false
 
     public var totalCopied: Int { copied.count }
     public var totalSkipped: Int { skipped.count }
@@ -40,26 +84,44 @@ public final class CopyService {
     public let verifyChecksums: Bool
     /// Czy po skopiowaniu porównywać sumę kontrolną kopii z oryginałem.
     public let verifyCopies: Bool
+    public let cancellation: CancellationToken
     private let fileManager = FileManager.default
     private static let bufferSize = 8 * 1024 * 1024
 
-    /// Zamknięcie wywoływane po skopiowaniu każdego pliku (0.0...1.0).
-    public var onProgress: ((Double, URL) -> Void)?
+    /// Wywoływane po każdym pliku oraz w trakcie kopiowania dużych plików (co blok 8 MB).
+    /// Wywołania przychodzą z wątku, na którym działa `copy` — nie z wątku głównego.
+    public var onProgress: ((CopyProgress) -> Void)?
 
-    public init(verifyChecksums: Bool, verifyCopies: Bool = false) {
+    public init(verifyChecksums: Bool, verifyCopies: Bool = false, cancellation: CancellationToken = CancellationToken()) {
         self.verifyChecksums = verifyChecksums
         self.verifyCopies = verifyCopies
+        self.cancellation = cancellation
     }
 
     /// Kopiuje pliki do struktury projektu (z opcjonalnym podfolderem kamery) i zwraca raport.
     ///
     /// Błąd pojedynczego pliku nie przerywa zgrywania — trafia do `CopyReport.failed`,
     /// a kopiowanie przechodzi do kolejnego pliku. Wyjątek rzucany jest tylko wtedy,
-    /// gdy nie da się utworzyć katalogów docelowych.
+    /// gdy nie da się utworzyć katalogów docelowych. Po anulowaniu (`cancellation`) bieżący
+    /// plik jest porzucany bez śladu, a raport ma ustawione `wasCancelled`.
     public func copy(files: [MediaFile], to layout: ProjectLayout, cameraLabel: String? = nil) throws -> CopyReport {
         var report = CopyReport()
         let total = files.count
+        let totalBytes = files.reduce(Int64(0)) { $0 + $1.size }
         var done = 0
+        var processedBytes: Int64 = 0
+        var transferredBytes: Int64 = 0
+
+        func emitProgress(_ file: URL, currentFileBytes: Int64 = 0) {
+            onProgress?(CopyProgress(
+                processedBytes: processedBytes + currentFileBytes,
+                transferredBytes: transferredBytes + currentFileBytes,
+                totalBytes: totalBytes,
+                filesDone: done,
+                totalFiles: total,
+                currentFile: file
+            ))
+        }
 
         // Zapewnij istnienie katalogów docelowych.
         try fileManager.createDirectory(at: layout.videoDir, withIntermediateDirectories: true)
@@ -82,7 +144,12 @@ public final class CopyService {
             .photo: Set(initialNames(of: photoTarget))
         ]
 
-        for file in files {
+        fileLoop: for file in files {
+            if cancellation.isCancelled {
+                report.wasCancelled = true
+                break
+            }
+
             let destDir = layout.targetDirectory(for: file.category, cameraLabel: cameraLabel)
             let decision = CopyPlanner.decision(
                 source: file.url,
@@ -96,20 +163,27 @@ public final class CopyService {
                 report.skipped.append(file.url)
             case .copyAsIs(let dest), .copy(let dest):
                 do {
-                    let bytes = try copyFile(from: file.url, to: dest)
+                    let bytes = try copyFile(from: file.url, to: dest) { copiedSoFar in
+                        emitProgress(file.url, currentFileBytes: copiedSoFar)
+                    }
                     report.copied.append(dest)
                     report.totalBytesCopied += bytes
+                    transferredBytes += bytes
                     if verifyCopies {
                         report.verified.append(dest)
                     }
                     existingNamesByCategory[file.category, default: []].insert(dest.lastPathComponent)
+                } catch CopyError.cancelled {
+                    report.wasCancelled = true
+                    break fileLoop
                 } catch {
                     report.failed.append(FailedCopy(url: file.url, error: error.localizedDescription))
                 }
             }
 
             done += 1
-            onProgress?(Double(done) / Double(total), file.url)
+            processedBytes += file.size
+            emitProgress(file.url)
         }
         return report
     }
@@ -138,7 +212,7 @@ public final class CopyService {
     /// nie zostawia więc w projekcie niepełnego pliku pod właściwą nazwą. Istniejący plik
     /// docelowy nigdy nie jest nadpisywany.
     @discardableResult
-    private func copyFile(from source: URL, to destination: URL) throws -> Int64 {
+    private func copyFile(from source: URL, to destination: URL, onChunk: (Int64) -> Void) throws -> Int64 {
         // Upewnij się, że katalog docelowy istnieje
         let parentDir = destination.deletingLastPathComponent()
         if !fileManager.fileExists(atPath: parentDir.path) {
@@ -150,16 +224,14 @@ public final class CopyService {
         try? fileManager.removeItem(at: partial)
 
         do {
-            if verifyCopies {
-                let sourceHash = try streamCopy(from: source, to: partial)
+            let sourceHash = try streamCopy(from: source, to: partial, computeHash: verifyCopies, onChunk: onChunk)
+            if let sourceHash {
                 let copyHash = try Self.checksum(of: partial, bypassingCache: true)
                 guard sourceHash == copyHash else {
                     throw CopyError.verificationFailed(source.path)
                 }
-                try copyTimestamps(from: source, to: partial)
-            } else {
-                try fileManager.copyItem(at: source, to: partial)
             }
+            try copyTimestamps(from: source, to: partial)
             try fileManager.moveItem(at: partial, to: destination)
         } catch let error as CopyError {
             try? fileManager.removeItem(at: partial)
@@ -173,9 +245,15 @@ public final class CopyService {
         return (attrs?[.size] as? Int64) ?? 0
     }
 
-    /// Kopiuje plik strumieniowo, jednocześnie licząc SHA-256 odczytanych danych
-    /// (karta jest czytana tylko raz). Zwraca checksum oryginału.
-    private func streamCopy(from source: URL, to destination: URL) throws -> String {
+    /// Kopiuje plik strumieniowo blokami, raportując postęp i sprawdzając anulowanie.
+    /// Z `computeHash` jednocześnie liczy SHA-256 odczytanych danych (karta jest czytana
+    /// tylko raz) i zwraca checksum oryginału.
+    private func streamCopy(
+        from source: URL,
+        to destination: URL,
+        computeHash: Bool,
+        onChunk: (Int64) -> Void
+    ) throws -> String? {
         guard fileManager.createFile(atPath: destination.path, contents: nil) else {
             throw CopyError.cannotCreateDestination(destination.path)
         }
@@ -183,17 +261,25 @@ public final class CopyService {
         defer { try? input.close() }
         let output = try FileHandle(forWritingTo: destination)
         defer { try? output.close() }
-        // Zapis z pominięciem pamięci podręcznej, aby weryfikacja czytała dane z dysku.
-        Self.disableCache(for: output)
+        if computeHash {
+            // Zapis z pominięciem pamięci podręcznej, aby weryfikacja czytała dane z dysku.
+            Self.disableCache(for: output)
+        }
 
-        var hasher = SHA256Hasher()
+        var hasher: SHA256Hasher? = computeHash ? SHA256Hasher() : nil
+        var written: Int64 = 0
         while let chunk = try autoreleasepool(invoking: { try input.read(upToCount: Self.bufferSize) }),
               !chunk.isEmpty {
-            hasher.update(chunk)
+            if cancellation.isCancelled {
+                throw CopyError.cancelled
+            }
+            hasher?.update(chunk)
             try output.write(contentsOf: chunk)
+            written += Int64(chunk.count)
+            onChunk(written)
         }
         try output.synchronize()
-        return hasher.finalize()
+        return hasher?.finalize()
     }
 
     /// Checksum SHA-256 pliku; opcjonalnie z pominięciem pamięci podręcznej systemu.
@@ -236,6 +322,7 @@ public final class CopyService {
         case readFailed(String)
         case writeFailed(String)
         case verificationFailed(String)
+        case cancelled
 
         public var errorDescription: String? {
             switch self {
@@ -245,6 +332,7 @@ public final class CopyService {
             case .readFailed(let p): return "Błąd odczytu pliku: \(p)"
             case .writeFailed(let p): return "Błąd zapisu pliku: \(p)"
             case .verificationFailed(let p): return "Kopia różni się od oryginału (błąd weryfikacji SHA-256): \(p)"
+            case .cancelled: return "Zgrywanie anulowane."
             }
         }
     }

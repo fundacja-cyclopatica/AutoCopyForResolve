@@ -84,6 +84,17 @@ struct MainWindow: View {
         } message: {
             Text("Wprowadź nową nazwę dla podłączonej karty w systemie macOS.")
         }
+        .sheet(item: $model.lastSession) { session in
+            IngestSummaryView(
+                session: session,
+                onRevealInFinder: { model.revealInFinder(session) },
+                onEjectCards: {
+                    model.ejectCards(of: session)
+                    model.lastSession = nil
+                },
+                onClose: { model.lastSession = nil }
+            )
+        }
     }
 
     // MARK: – Pasek tytułowy (Studio Titlebar)
@@ -409,70 +420,76 @@ struct MainWindow: View {
 
                 Spacer()
 
-                // Statystyki transferu
-                VStack(alignment: .trailing, spacing: 1) {
-                    let enabledCount = model.enabledCards.count
-                    let totalFiles = model.totalFilesToCopy
-                    let totalBytes = model.totalBytesToCopy
+                if let transfer = model.transfer {
+                    // W trakcie zgrywania: postęp w bajtach, prędkość, czas do końca i anulowanie
+                    transferProgressView(transfer)
+                    cancelButton(transfer)
+                } else {
+                    // Statystyki transferu
+                    VStack(alignment: .trailing, spacing: 1) {
+                        let enabledCount = model.enabledCards.count
+                        let totalFiles = model.totalFilesToCopy
+                        let totalBytes = model.totalBytesToCopy
 
-                    HStack(spacing: 4) {
-                        Text("Wybrano:")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.gray)
-                        Text("\(enabledCount) kart(y)")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color.white)
-                        Text("•")
-                            .foregroundStyle(Color.white.opacity(0.2))
-                        Text("\(totalFiles) plików")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color.white)
+                        HStack(spacing: 4) {
+                            Text("Wybrano:")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.gray)
+                            Text("\(enabledCount) kart(y)")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Color.white)
+                            Text("•")
+                                .foregroundStyle(Color.white.opacity(0.2))
+                            Text("\(totalFiles) plików")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Color.white)
+                        }
+
+                        HStack(spacing: 5) {
+                            Text("Łączny rozmiar: \(AppModel.formatBytes(totalBytes))")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(Color.gray.opacity(0.9))
+                            Text("•")
+                                .foregroundStyle(Color.white.opacity(0.2))
+                            Text("Czas: \(model.estimatedTransferInfo)")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(StudioTheme.accentCyan)
+                        }
                     }
 
-                    HStack(spacing: 5) {
-                        Text("Łączny rozmiar: \(AppModel.formatBytes(totalBytes))")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(Color.gray.opacity(0.9))
-                        Text("•")
-                            .foregroundStyle(Color.white.opacity(0.2))
-                        Text("Czas: \(model.estimatedTransferInfo)")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(StudioTheme.accentCyan)
-                    }
-                }
-
-                // Główny przycisk akcji (Vibrant Studio Action Button)
-                Button {
-                    model.startBatchCopy()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "square.and.arrow.down.fill")
-                            .font(.system(size: 13, weight: .bold))
-                        Text(model.totalFilesToCopy == 0 ? "Wybierz materiały" : "Zgraj (\(model.totalFilesToCopy) plików)")
-                            .font(.system(size: 13, weight: .bold))
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .bold))
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                    .background(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0/255, green: 210/255, blue: 255/255),
-                                Color(red: 10/255, green: 132/255, blue: 255/255),
-                                Color(red: 0/255, green: 102/255, blue: 255/255)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
+                    // Główny przycisk akcji (Vibrant Studio Action Button)
+                    Button {
+                        model.startBatchCopy()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "square.and.arrow.down.fill")
+                                .font(.system(size: 13, weight: .bold))
+                            Text(model.totalFilesToCopy == 0 ? "Wybierz materiały" : "Zgraj (\(model.totalFilesToCopy) plików)")
+                                .font(.system(size: 13, weight: .bold))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0/255, green: 210/255, blue: 255/255),
+                                    Color(red: 10/255, green: 132/255, blue: 255/255),
+                                    Color(red: 0/255, green: 102/255, blue: 255/255)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
                         )
-                    )
-                    .foregroundStyle(Color(red: 5/255, green: 19/255, blue: 41/255))
-                    .cornerRadius(9)
-                    .shadow(color: StudioTheme.accentCyan.opacity(0.45), radius: 10, x: 0, y: 2)
+                        .foregroundStyle(Color(red: 5/255, green: 19/255, blue: 41/255))
+                        .cornerRadius(9)
+                        .shadow(color: StudioTheme.accentCyan.opacity(0.45), radius: 10, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .opacity((model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty) ? 0.45 : 1.0)
                 }
-                .buttonStyle(.plain)
-                .disabled(model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty)
-                .opacity((model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty) ? 0.45 : 1.0)
             }
         }
         .padding(14)
@@ -480,6 +497,53 @@ struct MainWindow: View {
         .overlay(alignment: .top) {
             Divider().overlay(Color.white.opacity(0.08))
         }
+    }
+
+    // MARK: – Postęp zgrywania
+
+    private func transferProgressView(_ transfer: TransferStatus) -> some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            ProgressView(value: transfer.fraction)
+                .tint(StudioTheme.accentCyan)
+                .frame(width: 300)
+
+            HStack(spacing: 5) {
+                Text("\(AppModel.formatBytes(transfer.processedBytes)) z \(AppModel.formatBytes(transfer.totalBytes))")
+                    .foregroundStyle(Color.white.opacity(0.9))
+                Text("•")
+                    .foregroundStyle(Color.white.opacity(0.2))
+                Text(transfer.bytesPerSecond.map { "\(AppModel.formatBytes(Int64($0)))/s" } ?? "mierzę prędkość…")
+                    .foregroundStyle(StudioTheme.accentCyan)
+                Text("•")
+                    .foregroundStyle(Color.white.opacity(0.2))
+                Text(transfer.secondsRemaining.map { "zostało ~\(AppModel.formatDuration($0))" } ?? "szacuję czas…")
+                    .foregroundStyle(Color.gray)
+            }
+            .font(.system(size: 11, design: .monospaced))
+        }
+    }
+
+    private func cancelButton(_ transfer: TransferStatus) -> some View {
+        Button {
+            model.cancelCopy()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: transfer.isCancelling ? "hourglass" : "xmark.circle.fill")
+                    .font(.system(size: 13, weight: .bold))
+                Text(transfer.isCancelling ? "Anulowanie…" : "Anuluj")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(StudioTheme.accentRed.opacity(transfer.isCancelling ? 0.10 : 0.18))
+            .foregroundStyle(StudioTheme.accentRed)
+            .cornerRadius(9)
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(StudioTheme.accentRed.opacity(0.5), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(transfer.isCancelling)
+        .keyboardShortcut(.cancelAction)
+        .help("Przerwij zgrywanie (Esc). Pliki już skopiowane zostaną w projekcie.")
     }
 
     // MARK: – Zakładka Historia

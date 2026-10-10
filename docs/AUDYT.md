@@ -8,7 +8,8 @@ Stan na commit `542cde3` (2026-10-09). Przejrzany cały kod: `SDCardOrganizerCor
 > uruchamiany. Punkty oznaczone *(do potwierdzenia na Macu)* wynikają z wiedzy o zachowaniu
 > macOS/SwiftUI i warto je sprawdzić ręcznie.
 
-> **Status poprawek:** B1–B16 oraz błędy w obsłudze okien są naprawione (zob. historię gałęzi
+> **Status poprawek:** B1–B16 oraz błędy w obsłudze okien są naprawione; z propozycji UX
+> zrobione są punkty 1 (postęp, prędkość, ETA, Anuluj) i 2 (ekran podsumowania) (zob. historię gałęzi
 > `claude/intelligent-keller-legdgb`). Pozostałe punkty czekają na realizację.
 
 Priorytety: 🔴 krytyczne (utrata danych / crash / zablokowany główny scenariusz),
@@ -200,10 +201,10 @@ przełączniki filtrów, które w trakcie i tak nic nie zmieniają, a mylą.
 ## 3. Frontend — propozycje UX/UI
 
 ### Najważniejsze (wpływ na codzienną pracę)
-1. **Stan zgrywania z prawdziwego zdarzenia:** postęp w bajtach, bieżąca prędkość (MB/s),
+1. ✅ **Stan zgrywania z prawdziwego zdarzenia:** postęp w bajtach, bieżąca prędkość (MB/s),
    ETA liczone na żywo i przycisk **Anuluj**. Stała „~350 MB/s” jest myląca, bo karty
    UHS-I mają realnie 80–170 MB/s.
-2. **Ekran podsumowania po zgraniu:** skopiowano / pominięto (duplikaty) / błędy z listą
+2. ✅ **Ekran podsumowania po zgraniu:** skopiowano / pominięto (duplikaty) / błędy z listą
    plików, wynik weryfikacji oraz przyciski „Pokaż w Finderze”, „Otwórz w Resolve” i
    „Wysuń karty”.
 3. **Nazwa projektu:** pole ma 100 pt szerokości. Proponuję szersze pole z listą ostatnich

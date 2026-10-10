@@ -28,6 +28,10 @@ public final class AppModel: ObservableObject {
     /// Stan globalny zgrywania
     @Published public var isGlobalCopying: Bool = false
     @Published public var overallProgress: Double = 0
+    /// Bajty, prędkość i czas do końca trwającego zgrywania (`nil`, gdy nic się nie zgrywa).
+    @Published public private(set) var transfer: TransferStatus?
+    /// Podsumowanie ostatniej sesji — jego ustawienie pokazuje arkusz z wynikami.
+    @Published public var lastSession: IngestSessionSummary?
     @Published public var statusMessage: String = ""
     @Published public var statusIsError: Bool = false
 
@@ -54,6 +58,8 @@ public final class AppModel: ObservableObject {
     private var hasHandledInitialVolumes = false
     /// Ostatnie zlecone skanowanie każdej karty — wynik starszego skanu jest odrzucany.
     private var scanTokens: [String: UUID] = [:]
+    private var activeCancellation: CancellationToken?
+    private static let lastTransferSpeedKey = "lastTransferBytesPerSecond"
 
     /// Otwiera okno główne. Ustawiane przez widok okna, bo akcja `openWindow` istnieje tylko
     /// w środowisku SwiftUI, a okno trzeba umieć otworzyć ponownie także po jego zamknięciu.
@@ -119,18 +125,26 @@ public final class AppModel: ObservableObject {
         return hasP && !hasVideos
     }
 
-    /// Szacowany czas transferu przy prędkości magistrali
+    /// Szacowany czas zgrywania na podstawie prędkości zmierzonej przy ostatnim zgraniu.
+    /// Bez wcześniejszego pomiaru nie zgadujemy — prędkość kart różni się kilkukrotnie.
     public var estimatedTransferInfo: String {
-        guard totalBytesToCopy > 0 else { return "Gotowy" }
-        let assumedSpeed: Double = 350 * 1024 * 1024
-        let seconds = max(1, Int(Double(totalBytesToCopy) / assumedSpeed))
-        if seconds < 60 {
-            return "~\(seconds)s (~350 MB/s)"
-        } else {
-            let mins = seconds / 60
-            let remSecs = seconds % 60
-            return "~\(mins)m \(remSecs)s (~350 MB/s)"
+        guard totalBytesToCopy > 0 else { return "—" }
+        let speed = UserDefaults.standard.double(forKey: Self.lastTransferSpeedKey)
+        guard speed > 0 else { return "zmierzę przy pierwszym zgraniu" }
+        let seconds = Double(totalBytesToCopy) / speed
+        return "~\(AppModel.formatDuration(seconds)) (ostatnio \(AppModel.formatBytes(Int64(speed)))/s)"
+    }
+
+    /// Czas w czytelnej postaci: „45 s”, „3 min 20 s”, „1 h 05 min”.
+    public static func formatDuration(_ seconds: Double) -> String {
+        let total = max(1, Int(seconds.rounded()))
+        if total < 60 {
+            return "\(total) s"
         }
+        if total < 3600 {
+            return "\(total / 60) min \(total % 60) s"
+        }
+        return String(format: "%d h %02d min", total / 3600, (total % 3600) / 60)
     }
 
     /// Ręczny wybór folderu lub podłączonego czytnika do slotu
@@ -373,29 +387,34 @@ public final class AppModel: ObservableObject {
             return
         }
 
+        let totalBytesAllCards = filesToCopy.reduce(Int64(0)) { $0 + $1.size }
+        let cancellation = CancellationToken()
+        let settings = self.settings
+
         isGlobalCopying = true
         overallProgress = 0
+        transfer = TransferStatus(processedBytes: 0, totalBytes: totalBytesAllCards)
+        activeCancellation = cancellation
+        lastSession = nil
         statusMessage = ""
         statusIsError = false
 
-        let totalFilesAllCards = cardsToIngest.reduce(0) { $0 + $1.filteredFiles.count }
-        var completedFilesAllCards = 0
-        let settings = self.settings
-
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+            let startedAt = Date()
             do {
                 let builder = ProjectBuilder(settings: settings)
                 let layout = try builder.build(projectName: name)
 
-                var totalCopiedOverall = 0
-                var totalSkippedOverall = 0
-                var totalFailedOverall = 0
-                var totalVerifiedOverall = 0
-                var totalBytesOverall: Int64 = 0
-                var allFailures: [FailedCopy] = []
+                var results: [IngestSessionSummary.CardResult] = []
+                var processedBefore: Int64 = 0
+                var transferredBefore: Int64 = 0
+                var meter = TransferRateMeter()
+                var lastUIUpdate: TimeInterval = 0
 
                 for card in cardsToIngest {
+                    if cancellation.isCancelled { break }
+
                     DispatchQueue.main.async {
                         self.updateCard(id: card.id) {
                             $0.isCopying = true
@@ -407,14 +426,35 @@ public final class AppModel: ObservableObject {
 
                     let service = CopyService(
                         verifyChecksums: settings.verifyChecksums,
-                        verifyCopies: settings.verifyCopies
+                        verifyCopies: settings.verifyCopies,
+                        cancellation: cancellation
                     )
-                    service.onProgress = { [weak self] fraction, fileURL in
+                    service.onProgress = { [weak self] progress in
+                        let now = ProcessInfo.processInfo.systemUptime
+                        meter.add(totalBytes: transferredBefore + progress.transferredBytes, at: now)
+                        // Odświeżanie interfejsu najwyżej 5 razy na sekundę.
+                        guard now - lastUIUpdate >= 0.2 || progress.filesDone == progress.totalFiles else { return }
+                        lastUIUpdate = now
+
+                        let processed = processedBefore + progress.processedBytes
+                        let status = TransferStatus(
+                            processedBytes: processed,
+                            totalBytes: totalBytesAllCards,
+                            bytesPerSecond: meter.bytesPerSecond,
+                            secondsRemaining: meter.secondsRemaining(forRemainingBytes: totalBytesAllCards - processed)
+                        )
+                        let cardFraction = progress.fraction
+                        let fileName = progress.currentFile.lastPathComponent
                         DispatchQueue.main.async {
-                            self?.updateCard(id: card.id) {
-                                $0.progress = fraction
-                                $0.currentFile = fileURL.lastPathComponent
+                            guard let self else { return }
+                            self.updateCard(id: card.id) {
+                                $0.progress = cardFraction
+                                $0.currentFile = fileName
                             }
+                            self.overallProgress = status.fraction
+                            var updated = status
+                            updated.isCancelling = self.transfer?.isCancelling ?? false
+                            self.transfer = updated
                         }
                     }
 
@@ -424,82 +464,138 @@ public final class AppModel: ObservableObject {
                         cameraLabel: card.cameraLabel
                     )
 
-                    totalCopiedOverall += report.totalCopied
-                    totalSkippedOverall += report.totalSkipped
-                    totalFailedOverall += report.totalFailed
-                    totalVerifiedOverall += report.totalVerified
-                    totalBytesOverall += report.totalBytesCopied
-                    allFailures += report.failed
-                    completedFilesAllCards += card.filteredFiles.count
-
-                    let overallFraction = totalFilesAllCards > 0 ? Double(completedFilesAllCards) / Double(totalFilesAllCards) : 1.0
+                    processedBefore += card.totalSelectedBytes
+                    transferredBefore += report.totalBytesCopied
+                    results.append(IngestSessionSummary.CardResult(
+                        id: card.id,
+                        title: card.cameraLabel.isEmpty ? card.volumeName : "\(card.cameraLabel) (\(card.volumeName))",
+                        isManual: card.isManual,
+                        report: report
+                    ))
 
                     DispatchQueue.main.async {
                         self.updateCard(id: card.id) {
                             $0.isCopying = false
-                            $0.progress = 1.0
+                            $0.progress = report.wasCancelled ? $0.progress : 1.0
                             $0.lastReport = report
                         }
-                        self.overallProgress = overallFraction
                     }
+
+                    if report.wasCancelled { break }
                 }
 
-                // Zapisz wpis w historii dla sesji zgrywania
-                let sourceSummary = cardsToIngest.map { "\($0.cameraLabel.isEmpty ? $0.volumeName : $0.cameraLabel) (\($0.volumeName))" }.joined(separator: ", ")
-                let record = IngestRecord(
+                let session = IngestSessionSummary(
                     projectName: name,
-                    sourceVolumeName: sourceSummary,
-                    destinationPath: layout.root.path,
-                    filesCopied: totalCopiedOverall,
-                    filesSkipped: totalSkippedOverall,
-                    filesFailed: totalFailedOverall,
-                    totalBytes: totalBytesOverall
+                    destination: layout.root,
+                    cards: results,
+                    duration: Date().timeIntervalSince(startedAt),
+                    wasCancelled: cancellation.isCancelled,
+                    verificationEnabled: settings.verifyCopies
                 )
-                IngestHistory.append(record)
-
-                // Uruchom aplikacje docelowe (Resolve / Lightroom)
-                if settings.openInDaVinciResolve {
-                    self.launchDaVinciResolve(layout: layout)
-                }
-                if settings.openInLightroom {
-                    self.launchLightroom(layout: layout)
-                }
-
-                var summary = "Zgrano \(totalCopiedOverall) plików (\(AppModel.formatBytes(totalBytesOverall))) z \(cardsToIngest.count) kart."
-                if settings.verifyCopies && totalCopiedOverall > 0 {
-                    summary += " Zweryfikowano: \(totalVerifiedOverall)."
-                }
-                if totalSkippedOverall > 0 {
-                    summary += " Pominięto duplikaty: \(totalSkippedOverall)."
-                }
-                if let firstFailure = allFailures.first {
-                    summary += " Błędy: \(totalFailedOverall) — m.in. \(firstFailure.url.lastPathComponent): \(firstFailure.error)"
-                }
-
-                DispatchQueue.main.async {
-                    self.isGlobalCopying = false
-                    self.overallProgress = 1.0
-                    self.history = IngestHistory.load()
-                    self.setStatus(summary, isError: totalFailedOverall > 0)
-                    if totalFailedOverall > 0 {
-                        self.sendNotification(
-                            title: "Zgrywanie zakończone z błędami",
-                            body: "Projekt „\(name)”: \(totalFailedOverall) plików nie zostało zgranych. Nie formatuj kart przed sprawdzeniem."
-                        )
-                    } else {
-                        self.sendNotification(
-                            title: "Zgrywanie zakończone pomyślnie",
-                            body: "Projekt „\(name)”: zgrano \(totalCopiedOverall) plików z \(cardsToIngest.count) kart."
-                        )
-                    }
-                }
+                self.finishBatch(session, settings: settings, layout: layout)
             } catch {
                 DispatchQueue.main.async {
                     self.isGlobalCopying = false
+                    self.transfer = nil
+                    self.activeCancellation = nil
                     self.setStatus("Błąd zgrywania: \(error.localizedDescription)", isError: true)
                 }
             }
         }
+    }
+
+    /// Kończy sesję: historia, aplikacje docelowe, komunikat, powiadomienie i arkusz podsumowania.
+    /// Wywoływane z wątku zgrywania.
+    private func finishBatch(_ session: IngestSessionSummary, settings: Settings, layout: ProjectLayout) {
+        let failedCount = session.failures.count
+        let record = IngestRecord(
+            projectName: session.projectName,
+            sourceVolumeName: session.cards.map(\.title).joined(separator: ", "),
+            destinationPath: layout.root.path,
+            filesCopied: session.totalCopied,
+            filesSkipped: session.totalSkipped,
+            filesFailed: failedCount,
+            totalBytes: session.totalBytes
+        )
+        IngestHistory.append(record)
+
+        // Zapamiętaj zmierzoną prędkość do szacowania czasu następnych zgrań.
+        if let speed = session.averageBytesPerSecond, session.duration >= 3 {
+            UserDefaults.standard.set(speed, forKey: Self.lastTransferSpeedKey)
+        }
+
+        // Uruchom aplikacje docelowe (Resolve / Lightroom) — nie po anulowaniu
+        if !session.wasCancelled {
+            if settings.openInDaVinciResolve {
+                launchDaVinciResolve(layout: layout)
+            }
+            if settings.openInLightroom {
+                launchLightroom(layout: layout)
+            }
+        }
+
+        var message = "Zgrano \(session.totalCopied) plików (\(AppModel.formatBytes(session.totalBytes))) z \(session.cards.count) kart."
+        if session.wasCancelled {
+            message = "Zgrywanie anulowane. " + message
+        }
+        if session.verificationEnabled && session.totalCopied > 0 {
+            message += " Zweryfikowano: \(session.totalVerified)."
+        }
+        if session.totalSkipped > 0 {
+            message += " Pominięto duplikaty: \(session.totalSkipped)."
+        }
+        if let firstFailure = session.failures.first {
+            message += " Błędy: \(failedCount) — m.in. \(firstFailure.url.lastPathComponent): \(firstFailure.error)"
+        }
+
+        DispatchQueue.main.async {
+            self.isGlobalCopying = false
+            self.overallProgress = session.wasCancelled ? self.overallProgress : 1.0
+            self.transfer = nil
+            self.activeCancellation = nil
+            self.history = IngestHistory.load()
+            self.setStatus(message, isError: failedCount > 0 || session.wasCancelled)
+            self.lastSession = session
+
+            if session.wasCancelled {
+                self.sendNotification(
+                    title: "Zgrywanie anulowane",
+                    body: "Projekt „\(session.projectName)”: zgrano \(session.totalCopied) plików przed przerwaniem."
+                )
+            } else if failedCount > 0 {
+                self.sendNotification(
+                    title: "Zgrywanie zakończone z błędami",
+                    body: "Projekt „\(session.projectName)”: \(failedCount) plików nie zostało zgranych. Nie formatuj kart przed sprawdzeniem."
+                )
+            } else {
+                self.sendNotification(
+                    title: "Zgrywanie zakończone pomyślnie",
+                    body: "Projekt „\(session.projectName)”: zgrano \(session.totalCopied) plików z \(session.cards.count) kart."
+                )
+            }
+        }
+    }
+
+    /// Przerywa trwające zgrywanie. Bieżący plik jest porzucany (bez śladu w projekcie),
+    /// pliki już skopiowane zostają.
+    public func cancelCopy() {
+        guard isGlobalCopying, let cancellation = activeCancellation else { return }
+        cancellation.cancel()
+        transfer?.isCancelling = true
+        setStatus("Anulowanie… przerywam bieżący plik.", isError: false)
+    }
+
+    /// Wysuwa karty z zakończonej sesji (ręcznie dodane foldery są pomijane).
+    public func ejectCards(of session: IngestSessionSummary) {
+        for card in session.cards where !card.isManual {
+            guard let config = cardConfigs.first(where: { $0.id == card.id }) else { continue }
+            ejectCard(url: config.volumeURL)
+        }
+    }
+
+    /// Pokazuje folder projektu w Finderze.
+    public func revealInFinder(_ session: IngestSessionSummary) {
+        NSWorkspace.shared.activateFileViewerSelecting([session.destination])
     }
 
     // MARK: – Sprawdzenie dysku docelowego przed zgrywaniem

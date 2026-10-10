@@ -113,6 +113,10 @@ Tests/
   z dysku i porównywany z oryginałem. Opcję można wyłączyć w ustawieniach (Zaawansowane).
 - Plik powstaje najpierw jako ukryty `.<nazwa>.part` i dostaje właściwą nazwę dopiero po
   udanym skopiowaniu i weryfikacji — przerwane zgrywanie nie zostawia niepełnych plików.
+- W trakcie zgrywania widać postęp w bajtach, bieżącą prędkość i szacowany czas do końca;
+  zgrywanie można przerwać przyciskiem **Anuluj** (lub Esc) — bieżący plik jest porzucany bez
+  śladu, a już skopiowane zostają. Po zakończeniu pojawia się podsumowanie z listą błędów
+  oraz przyciskami „Pokaż w Finderze” i „Wysuń karty” (aktywnym tylko po zgraniu bez błędów).
 - Błąd pojedynczego pliku nie przerywa zgrywania; pliki, których nie udało się zgrać, są
   pokazywane na karcie i liczone w historii.
 - Można wielokrotnie zgrywać do tego samego projektu tego samego dnia — istniejący plik
