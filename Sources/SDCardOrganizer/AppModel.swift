@@ -6,8 +6,14 @@ import SDCardOrganizerCore
 
 /// Obserwowalny model stanu aplikacji — zarządza do 4 kartami SD, ustawieniami i zgrywaniem.
 public final class AppModel: ObservableObject {
-    /// Identyfikator sceny okna głównego.
-    public static let mainWindowID = "main"
+    /// Identyfikator sceny okna ustawień i historii.
+    public static let settingsWindowID = "settings"
+
+    /// Zakładki okna ustawień.
+    public enum SettingsTab: Hashable {
+        case settings
+        case history
+    }
 
     @Published public var settings: Settings {
         didSet {
@@ -58,20 +64,12 @@ public final class AppModel: ObservableObject {
     @Published public var statusMessage: String = ""
     @Published public var statusIsError: Bool = false
 
-    /// Historia i nawigacja
+    /// Historia i zakładka okna ustawień
     @Published public var history: [IngestRecord] = []
-    @Published public var selectedTab: Int = 0
+    @Published public var selectedTab: SettingsTab = .settings
 
-    /// Dialog zmiany nazwy karty
-    @Published public var renamingCardURL: URL? = nil
-    @Published public var renameInputText: String = ""
-
-    /// Zarządzanie presetami kamer
+    /// Pole dodawania nowego presetu kamery w ustawieniach
     @Published public var newPresetInputText: String = ""
-    @Published public var isShowingPresetSheet: Bool = false
-
-    /// Stan bocznego panelu ustawień w oknie
-    @Published public var isSettingsPanelOpen: Bool = false
 
     public let volumeMonitor = VolumeMonitor()
 
@@ -84,15 +82,16 @@ public final class AppModel: ObservableObject {
     private var activeCancellation: CancellationToken?
     private static let lastTransferSpeedKey = "lastTransferBytesPerSecond"
 
-    /// Otwiera okno główne. Ustawiane przez widok okna, bo akcja `openWindow` istnieje tylko
+    /// Otwiera okno ustawień. Ustawiane przez widok okna, bo akcja `openWindow` istnieje tylko
     /// w środowisku SwiftUI, a okno trzeba umieć otworzyć ponownie także po jego zamknięciu.
-    public var openMainWindowAction: (() -> Void)?
+    public var openSettingsWindowAction: (() -> Void)?
 
     /// Pokazuje wysuwany panel z paska menu (ustawiane przez `MenuBarController`).
     public var showPanelAction: (() -> Void)?
 
-    /// Czy okno główne ma się schować przy starcie aplikacji — główną formą pracy jest panel.
-    public var hidesMainWindowAtLaunch = true
+    /// Czy okno ustawień ma się schować przy starcie aplikacji — SwiftUI otwiera je samo,
+    /// a główną formą pracy jest panel z paska menu.
+    public var hidesSettingsWindowAtLaunch = true
 
     /// Maksymalna liczba źródeł (kart i ręcznie dodanych folderów) wyświetlanych obok siebie.
     public static let maxCards = 4
@@ -351,29 +350,24 @@ public final class AppModel: ObservableObject {
                 : "Karty \(names) są gotowe do zgrywania."
         )
 
-        // Automatycznie wysuń panel z paska menu (albo okno, gdy panelu nie ma)
+        // Automatycznie wysuń panel z paska menu
         DispatchQueue.main.async {
-            if let showPanel = self.showPanelAction {
-                showPanel()
-            } else {
-                self.showMainWindow()
-            }
+            self.showPanelAction?()
         }
     }
 
-    /// Pokazuje okno główne — również wtedy, gdy użytkownik je wcześniej zamknął.
-    public func showMainWindow(openingSettings: Bool = false) {
+    /// Pokazuje okno ustawień na wybranej zakładce — również wtedy, gdy zostało zamknięte.
+    public func showSettingsWindow(tab: SettingsTab = .settings) {
         refreshDestinationInfo()
-        if openingSettings {
-            isSettingsPanelOpen = true
-        }
+        history = IngestHistory.load()
+        selectedTab = tab
         NSApp.activate(ignoringOtherApps: true)
-        if let openMainWindow = openMainWindowAction {
-            openMainWindow()
+        if let openSettingsWindow = openSettingsWindowAction {
+            openSettingsWindow()
         } else {
-            for window in NSApp.windows where window.canBecomeKey {
+            // Bez panelu z paska menu (który nie może stać się oknem głównym).
+            for window in NSApp.windows where window.canBecomeMain {
                 window.makeKeyAndOrderFront(nil)
-                window.orderFrontRegardless()
             }
         }
     }
@@ -444,24 +438,6 @@ public final class AppModel: ObservableObject {
             setStatus("Karta została bezpiecznie wysunięta.", isError: false)
         } catch {
             setStatus("Błąd wysuwania karty: \(error.localizedDescription)", isError: true)
-        }
-    }
-
-    public func renameCard(url: URL, newName: String) {
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        guard !isGlobalCopying else {
-            setStatus("Nie można zmienić nazwy karty w trakcie zgrywania.", isError: true)
-            return
-        }
-        // diskutil zmieniłby nazwę całego wolumenu, na którym leży ręcznie dodany folder.
-        guard !cardConfigs.contains(where: { $0.volumeURL == url && $0.isManual }) else { return }
-        do {
-            try VolumeManager.renameVolume(at: url, to: trimmed)
-            volumeMonitor.refresh()
-            setStatus("Zmieniono nazwę karty na „\(trimmed)”.", isError: false)
-        } catch {
-            setStatus("Błąd zmiany nazwy karty: \(error.localizedDescription)", isError: true)
         }
     }
 

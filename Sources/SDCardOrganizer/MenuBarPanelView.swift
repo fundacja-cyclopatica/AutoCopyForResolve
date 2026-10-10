@@ -104,12 +104,12 @@ struct MenuBarPanelView: View {
 
             Spacer(minLength: 8)
 
-            // Otwiera pełne okno aplikacji (historia, szczegółowe ustawienia)
+            // Historia zgrań (okno ustawień, zakładka Historia)
             Button {
                 onClose()
-                model.showMainWindow()
+                model.showSettingsWindow(tab: .history)
             } label: {
-                Image(systemName: "macwindow")
+                Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.9))
                     .frame(width: 40, height: 40)
@@ -118,7 +118,7 @@ struct MenuBarPanelView: View {
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(PanelTheme.borderStrong, lineWidth: 1))
             }
             .buttonStyle(.plain)
-            .help("Otwórz pełne okno aplikacji")
+            .help("Historia zgrań")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -451,6 +451,17 @@ struct MenuBarPanelView: View {
                             .foregroundStyle(PanelTheme.accent.opacity(0.9))
                             .lineLimit(2)
                     }
+
+                    // Komunikat ostatniej operacji (błąd zgrywania, problem z dyskiem, wysunięcie
+                    // karty). Wynik zgrania pokazuje osobna ramka, więc tu go nie powtarzamy.
+                    if !model.statusMessage.isEmpty && model.lastSession == nil {
+                        Text(model.statusMessage)
+                            .font(.system(size: 11))
+                            .foregroundStyle(model.statusIsError ? PanelTheme.danger : PanelTheme.textSecondary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
                 }
 
                 Spacer(minLength: 8)
@@ -473,24 +484,13 @@ struct MenuBarPanelView: View {
                 .disabled(isBlocked)
                 .opacity(isBlocked ? 0.45 : 1)
                 .keyboardShortcut(.return, modifiers: .command)
-                .help(model.copyBlockedReason ?? "Zgraj wybrane materiały (⌘↩)")
+                .help(model.copyBlockedReason ?? "Zgraj wybrane materiały (⌘↩) — szacowany czas: \(model.estimatedTransferInfo)")
             }
         }
     }
 
     private var footer: some View {
         HStack(spacing: 6) {
-            Button {
-                onClose()
-                model.showMainWindow()
-            } label: {
-                Label("Pełne okno", systemImage: "macwindow")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(PanelTheme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Historia, szczegółowe ustawienia i widok kolumn")
-
             Spacer()
 
             footerIconButton("arrow.counterclockwise", help: "Przeskanuj karty ponownie (⌘R)") {
@@ -499,9 +499,9 @@ struct MenuBarPanelView: View {
             .keyboardShortcut("r", modifiers: .command)
             .disabled(model.isGlobalCopying)
 
-            footerIconButton("gearshape", help: "Ustawienia programu") {
+            footerIconButton("gearshape", help: "Ustawienia i historia zgrań") {
                 onClose()
-                model.showMainWindow(openingSettings: true)
+                model.showSettingsWindow(tab: .settings)
             }
 
             Button("Zamknij") {

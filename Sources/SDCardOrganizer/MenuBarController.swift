@@ -5,7 +5,7 @@ import SDCardOrganizerCore
 
 /// Kontroler ikony w pasku menu systemowym (NSStatusItem).
 /// - Lewy przycisk myszy: wysuwa / chowa panel z kartami (jak widget)
-/// - Prawy przycisk myszy: menu podręczne (status kart, okno główne, ustawienia, zakończenie)
+/// - Prawy przycisk myszy: menu podręczne (status kart, panel, ustawienia, historia, zakończenie)
 public final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem!
     private let model: AppModel
@@ -131,13 +131,17 @@ public final class MenuBarController: NSObject {
 
         menu.addItem(NSMenuItem.separator())
 
-        let openMainItem = NSMenuItem(title: "Otwórz okno główne", action: #selector(openMainWindowAction), keyEquivalent: "o")
-        openMainItem.target = self
-        menu.addItem(openMainItem)
+        let showPanelItem = NSMenuItem(title: "Pokaż panel kart", action: #selector(showPanelAction), keyEquivalent: "")
+        showPanelItem.target = self
+        menu.addItem(showPanelItem)
 
         let openSettingsItem = NSMenuItem(title: "Ustawienia…", action: #selector(openSettingsAction), keyEquivalent: ",")
         openSettingsItem.target = self
         menu.addItem(openSettingsItem)
+
+        let openHistoryItem = NSMenuItem(title: "Historia zgrań…", action: #selector(openHistoryAction), keyEquivalent: "")
+        openHistoryItem.target = self
+        menu.addItem(openHistoryItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -148,20 +152,21 @@ public final class MenuBarController: NSObject {
         return menu
     }
 
-    @objc private func openMainWindowAction() {
-        openMainWindow()
+    @objc private func showPanelAction() {
+        panelController.show()
     }
 
     @objc private func openSettingsAction() {
-        // Ustawienia są panelem w oknie głównym (selektor `showSettingsWindow:` nie działa od macOS 14).
-        model.showMainWindow(openingSettings: true)
+        panelController.hide()
+        model.showSettingsWindow(tab: .settings)
+    }
+
+    @objc private func openHistoryAction() {
+        panelController.hide()
+        model.showSettingsWindow(tab: .history)
     }
 
     @objc private func quitAppAction() {
         NSApplication.shared.terminate(nil)
-    }
-
-    private func openMainWindow() {
-        model.showMainWindow()
     }
 }

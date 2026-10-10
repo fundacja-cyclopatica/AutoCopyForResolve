@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    // Aplikacja żyje w pasku menu — zamknięcie okna głównego nie może jej kończyć.
+    // Aplikacja żyje w pasku menu — zamknięcie okna ustawień nie może jej kończyć.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
@@ -21,12 +21,12 @@ struct SDCardOrganizerApp: App {
     }
 
     var body: some Scene {
-        // Pełne okno aplikacji. `Window` (a nie `WindowGroup`) gwarantuje jedno okno:
-        // ponowne otwarcie z paska menu przywraca je zamiast tworzyć kolejne.
-        // Wszystkie ustawienia są w panelu wewnątrz tego okna.
-        Window("SD Card Organizer", id: AppModel.mainWindowID) {
-            MainWindow(model: model)
-                .frame(minWidth: 680, minHeight: 560)
+        // Okno ustawień i historii (otwierane z panelu lub z menu ikony). `Window`, a nie
+        // `WindowGroup`, gwarantuje jedno okno — ponowne otwarcie przywraca istniejące.
+        // Główną formą pracy jest wysuwany panel z paska menu.
+        Window("Ustawienia — SD Card Organizer", id: AppModel.settingsWindowID) {
+            SettingsWindow(model: model)
         }
+        .windowResizability(.contentMinSize)
     }
 }

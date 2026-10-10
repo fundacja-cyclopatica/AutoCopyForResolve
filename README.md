@@ -17,8 +17,8 @@ na wybrany dysk oraz przygotowania struktury katalogów i projektu DaVinci Resol
 4. W panelu wybierasz zakres dni, typy materiałów, podpis kamery, dysk docelowy i nazwę
    projektu, a **Szybki zrzut** zgrywa materiał (z weryfikacją, postępem i możliwością
    anulowania).
-5. Pełne okno (przycisk w panelu lub prawy klik na ikonie → „Otwórz okno główne”) zawiera
-   widok kolumn, historię zgrań i szczegółowe ustawienia.
+5. Ikona zębatki w panelu (albo prawy klik na ikonie → „Ustawienia…” / „Historia zgrań…”)
+   otwiera okno **Ustawienia** z dwiema zakładkami: ustawienia i historia zgrań.
 
 ## Struktura katalogów
 
@@ -69,20 +69,22 @@ swift test
 
 ## Praca z projektami
 
-- Pole **Projekt** ma listę projektów istniejących już na dysku docelowym — wybranie
-  projektu (także z innego dnia) dogrywa do niego kolejne karty zamiast tworzyć nowy folder.
-  Pod nazwą aplikacji widać pełną ścieżkę, do której trafi materiał.
+- Pole nazwy projektu w sekcji dysku docelowego ma listę projektów istniejących już na
+  dysku — wybranie projektu (także z innego dnia) dogrywa do niego kolejne karty zamiast
+  tworzyć nowy folder. Pod polem widać pełną ścieżkę, do której trafi materiał.
 - Obok dysku docelowego widać wolne miejsce (na czerwono, gdy wybrane materiały się nie
   zmieszczą) albo informację, że dysk jest niedostępny.
-- Gdy przycisk **Zgraj** jest nieaktywny, pod statystykami widać, czego brakuje.
-- Skróty: ⌘↩ zgraj, ⌘R skanuj karty, ⌘, ustawienia, ⌘1 / ⌘2 zakładki, Esc anuluj zgrywanie.
+- Gdy przycisk **Szybki zrzut** jest nieaktywny, pod podsumowaniem widać, czego brakuje.
+- Skróty w panelu: ⌘↩ zgraj, ⌘R skanuj karty, Esc schowaj panel. W oknie ustawień:
+  ⌘1 ustawienia, ⌘2 historia.
 
 ## Konfiguracja
 
 Ustawienia przechowywane są w pliku:
 `~/Library/Application Support/SDCardOrganizer/settings.json`
 
-Można je zmieniać w panelu **Ustawienia** w oknie głównym (również z menu ikony w pasku menu):
+Można je zmieniać w oknie **Ustawienia** (ikona zębatki w panelu albo menu pod prawym
+kliknięciem ikony w pasku menu):
 - **Dysk docelowy** — folder, do którego trafią materiały.
 - **Typy plików** — które rozszerzenia zgrywać (Wideo, Dźwięk, Zdjęcia i RAW). Podglądy DJI
   `.LRF` są domyślnie wyłączone; miniatury kamer (np. Sony `THMBNL`) są zawsze pomijane.
