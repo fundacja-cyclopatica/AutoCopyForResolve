@@ -12,7 +12,8 @@ final class FloatingPanel: NSPanel {
 /// Panel wysuwany z prawej krawędzi ekranu pod ikoną w pasku menu (jak widget).
 ///
 /// - pojawia się nad wszystkimi oknami, na każdym biurku i nad aplikacjami na pełnym ekranie,
-/// - nie znika po kliknięciu obok — zamyka go „Zamknij”, Esc albo ponowne kliknięcie ikony,
+/// - chowa się po kliknięciu poza panelem (w innej aplikacji, na biurku lub w oknie głównym),
+///   a także po „Zamknij”, Esc albo ponownym kliknięciu ikony,
 /// - dopasowuje wysokość do treści (liczby kart) z płynną animacją, trzymając górną krawędź
 ///   pod paskiem menu; gdy treść nie mieści się na ekranie, karty się przewijają.
 final class StatusPanelController {
@@ -21,6 +22,11 @@ final class StatusPanelController {
     private let screenProvider: () -> NSScreen?
     private var contentHeight: CGFloat = 420
     private(set) var isVisible = false
+    /// Trwa okno systemowe otwarte z panelu (wybór folderu, alert) — kliknięcia w nim
+    /// nie mogą chować panelu.
+    private var isPresentingModal = false
+    private var globalClickMonitor: Any?
+    private var localClickMonitor: Any?
 
     /// Wywoływane po pokazaniu / schowaniu panelu (np. do podświetlenia ikony).
     var onVisibilityChange: ((Bool) -> Void)?
@@ -84,12 +90,14 @@ final class StatusPanelController {
         } completion: {
             self.panel.invalidateShadow()
         }
+        startMonitoringOutsideClicks()
         onVisibilityChange?(true)
     }
 
     func hide() {
         guard isVisible else { return }
         isVisible = false
+        stopMonitoringOutsideClicks()
 
         var end = panel.frame
         end.origin.x = (panel.screen ?? NSScreen.main)?.frame.maxX ?? end.maxX
@@ -109,6 +117,8 @@ final class StatusPanelController {
     /// Okna systemowe (wybór folderu, alerty) mają niższy poziom niż panel — na czas ich
     /// wyświetlania panel schodzi na zwykły poziom, żeby ich nie zasłaniać.
     func performModal(_ action: () -> Void) {
+        isPresentingModal = true
+        defer { isPresentingModal = false }
         panel.level = .normal
         NSApp.activate(ignoringOtherApps: true)
         action()
@@ -116,6 +126,44 @@ final class StatusPanelController {
         if isVisible {
             panel.orderFrontRegardless()
         }
+    }
+
+    // MARK: – Kliknięcia poza panelem
+
+    private func startMonitoringOutsideClicks() {
+        stopMonitoringOutsideClicks()
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        // Kliknięcia w innych aplikacjach i na biurku.
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            guard let self, !self.isPresentingModal else { return }
+            self.hide()
+        }
+
+        // Kliknięcia w oknach tej aplikacji. Panel chowamy tylko przy kliknięciu w zwykłe
+        // okno (okno główne) — nie w sam panel, jego menu rozwijane ani ikonę w pasku menu
+        // (ikona sama przełącza panel).
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            guard let self, !self.isPresentingModal,
+                  let window = event.window,
+                  window !== self.panel,
+                  window.canBecomeMain else {
+                return event
+            }
+            self.hide()
+            return event
+        }
+    }
+
+    private func stopMonitoringOutsideClicks() {
+        if let globalClickMonitor {
+            NSEvent.removeMonitor(globalClickMonitor)
+        }
+        if let localClickMonitor {
+            NSEvent.removeMonitor(localClickMonitor)
+        }
+        globalClickMonitor = nil
+        localClickMonitor = nil
     }
 
     // MARK: – Wysokość

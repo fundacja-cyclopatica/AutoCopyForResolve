@@ -10,8 +10,8 @@ na wybrany dysk oraz przygotowania struktury katalogów i projektu DaVinci Resol
    kartami. Panel:
    - dopasowuje wysokość do liczby kart i płynnie się rozszerza po włożeniu kolejnej,
    - jest zawsze na wierzchu (także nad aplikacjami na pełnym ekranie i na każdym biurku),
-   - nie znika po kliknięciu obok — chowa go przycisk **Zamknij**, klawisz Esc albo ponowne
-     kliknięcie ikony,
+   - chowa się po kliknięciu poza panelem, przyciskiem **Zamknij**, klawiszem Esc albo
+     ponownym kliknięciem ikony,
    - przy większej liczbie kart niż mieści ekran przewija listę kart.
 3. Włożenie karty automatycznie wysuwa panel i skanuje kartę.
 4. W panelu wybierasz zakres dni, typy materiałów, podpis kamery, dysk docelowy i nazwę
