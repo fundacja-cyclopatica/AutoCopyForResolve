@@ -12,24 +12,12 @@ struct SDCardOrganizerApp: App {
     }
 
     var body: some Scene {
-        // Pełne okno aplikacji.
-        WindowGroup("SD Card Organizer", id: "main") {
+        // Pełne okno aplikacji. `Window` (a nie `WindowGroup`) gwarantuje jedno okno:
+        // ponowne otwarcie z paska menu przywraca je zamiast tworzyć kolejne.
+        // Wszystkie ustawienia są w panelu wewnątrz tego okna.
+        Window("SD Card Organizer", id: AppModel.mainWindowID) {
             MainWindow(model: model)
                 .frame(minWidth: 680, minHeight: 560)
-                .onReceive(NotificationCenter.default.publisher(for: AppModel.showMainWindowNotification)) { _ in
-                    NSApp.activate(ignoringOtherApps: true)
-                    for window in NSApp.windows where window.canBecomeKey {
-                        window.makeKeyAndOrderFront(nil)
-                        window.orderFrontRegardless()
-                    }
-                }
-        }
-
-        // Okno ustawień.
-        Settings {
-            SettingsView(model: model)
-                .frame(width: 520, height: 420)
         }
     }
 }
-

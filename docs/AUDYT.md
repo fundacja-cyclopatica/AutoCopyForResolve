@@ -8,7 +8,7 @@ Stan na commit `542cde3` (2026-10-09). Przejrzany cały kod: `SDCardOrganizerCor
 > uruchamiany. Punkty oznaczone *(do potwierdzenia na Macu)* wynikają z wiedzy o zachowaniu
 > macOS/SwiftUI i warto je sprawdzić ręcznie.
 
-> **Status poprawek:** B1–B10 i B16 są naprawione (zob. historię gałęzi
+> **Status poprawek:** B1–B16 oraz błędy w obsłudze okien są naprawione (zob. historię gałęzi
 > `claude/intelligent-keller-legdgb`). Pozostałe punkty czekają na realizację.
 
 Priorytety: 🔴 krytyczne (utrata danych / crash / zablokowany główny scenariusz),
@@ -107,19 +107,19 @@ wątek w tle (pliki, etykiety, ustawienia), a karty aktualizuj zawsze po `id`, n
 indeksie. W `ForEach` iteruj po `cardConfigs` z `id: \.id` i twórz binding przez wyszukanie
 po `id`. Docelowo: `@MainActor` dla `AppModel` i `async/await`.
 
-### 🟡 B11. Odznaczenie wszystkich dni powoduje zgranie *wszystkiego*
+### ✅ 🟡 B11. Odznaczenie wszystkich dni powoduje zgranie *wszystkiego*
 `CardIngestConfig.swift:74-76`. Pusta `selectedDays` oznacza „wszystkie pliki”. Gdy
 użytkownik odznaczy ostatni dzień, przycisk dalej pokazuje „Zgraj (N plików)”, a segment
 „Wszystkie” się podświetla (`CardColumnView.swift:333`). Komentarz w linii 23 opisuje
 odwrotne zachowanie. **Naprawa:** pusta selekcja oznacza 0 plików.
 
-### 🟡 B12. Pliki audio są kopiowane „po cichu”
+### ✅ 🟡 B12. Pliki audio są kopiowane „po cichu”
 `includeAudio = true` domyślnie, ale w UI karty nie ma przełącznika audio
 (`CardColumnView.swift:277-291`). Audio nie jest też liczone w stopce, w pasku zajętości
 ani w wierszu dnia (`CardColumnView.swift:385`). Użytkownik nie wie, że zgrywa WAV-y i nie
 może tego wyłączyć dla karty.
 
-### 🟡 B13. Miniatury kamer trafiają do „Zdjęć”
+### ✅ 🟡 B13. Miniatury kamer trafiają do „Zdjęć”
 `MediaScanner.swift:120-153` skanuje wszystko rekurencyjnie. Sony (FX3, A7…) trzyma
 miniatury JPG w `M4ROOT/THMBNL/`, więc każdy klip daje dodatkowe „zdjęcie”. Do tego DJI
 `.LRF` (proxy) jest domyślnie włączone i ląduje w `Video/` obok oryginałów, co podwaja liczbę
@@ -127,14 +127,14 @@ klipów w Resolve.
 **Naprawa:** lista wykluczonych katalogów (`THMBNL`, `MISC`, `AVF_INFO`, `CANONMSC`,
 `.Spotlight-V100`…). `LRF` domyślnie wyłączone albo zgrywane do podfolderu `Proxy/`.
 
-### 🟡 B14. Rozjazd list rozszerzeń (cztery źródła prawdy)
+### ✅ 🟡 B14. Rozjazd list rozszerzeń (cztery źródła prawdy)
 `Settings.defaultExtensions`, `MediaCategory.extensions` i dwie kopie `allExtensions` w
 widokach ustawień to cztery osobne listy. `mpg`/`mpeg` są w domyślnych, ale nie ma ich w UI,
 więc **nie da się ich wyłączyć**, a „Odznacz wszystkie” ich nie odznacza. Z kolei
 odznaczenie wszystkich typów zostaje cofnięte do domyślnych przy następnym starcie
 (`Settings.swift:84`). Zmiana typów plików nie wywołuje też ponownego skanu kart.
 
-### 🟡 B15. Brak sprawdzeń przed startem (preflight)
+### ✅ 🟡 B15. Brak sprawdzeń przed startem (preflight)
 Przed zgraniem aplikacja nie sprawdza, czy:
 - dysk docelowy jest zamontowany i zapisywalny (odłączony SSD daje niejasny błąd uprawnień
   przy tworzeniu folderu w `/Volumes`),
@@ -165,7 +165,7 @@ przełączniki filtrów, które w trakcie i tak nic nie zmieniają, a mylą.
 - Martwy kod: `MenuBarMenu.swift` (cały plik nieużywany), `CopyFileResult`,
   `CopyService.directory(for:)`, nieużywane przypadki `CopyError`.
 
-### Błędy w obsłudze okien (do potwierdzenia na Macu)
+### ✅ Błędy w obsłudze okien (do potwierdzenia na Macu)
 - 🟠 **Po zamknięciu okna głównego nie da się go otworzyć z paska menu.**
   `MenuBarController.swift:148-155` wysyła notyfikację, którą odbiera `onReceive` *wewnątrz*
   `MainWindow`, a ten po zamknięciu okna już nie istnieje. Pętla po `NSApp.windows` nie

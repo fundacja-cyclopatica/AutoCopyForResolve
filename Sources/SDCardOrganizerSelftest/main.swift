@@ -302,6 +302,38 @@ struct SelfTest {
             return decision == .copy(dest.appendingPathComponent("A001_1.BRAW"))
         }
 
+        check("Odznaczenie wszystkich dni = brak plików do zgrania") {
+            var config = CardIngestConfig(volumeURL: URL(fileURLWithPath: "/Volumes/Card"), volumeName: "Card")
+            config.setScanResults([
+                MediaFile(url: URL(fileURLWithPath: "/Volumes/Card/a.mov"), category: .video, size: 10),
+                MediaFile(url: URL(fileURLWithPath: "/Volumes/Card/b.wav"), category: .audio, size: 5)
+            ])
+            let latestOnly = config.isLatestDayOnlySelected && config.filteredFiles.count == 2
+            config.includeAudio = false
+            let withoutAudio = config.filteredFiles.count == 1
+            config.selectedDays = []
+            return latestOnly && withoutAudio && config.filteredFiles.isEmpty
+        }
+
+        check("Katalog formatów: jedno źródło prawdy, LRF domyślnie wyłączone") {
+            Settings.defaultExtensions == MediaFormats.allExtensions.subtracting(["lrf"])
+                && MediaCategory.category(for: URL(fileURLWithPath: "/a/clip.MPG")) == .video
+                && MediaCategory.category(for: URL(fileURLWithPath: "/a/shot.IIQ")) == .photo
+        }
+
+        check("Skaner pomija miniatury kamer (THMBNL)") {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let clips = dir.appendingPathComponent("PRIVATE/M4ROOT/CLIP")
+            let thumbnails = dir.appendingPathComponent("PRIVATE/M4ROOT/THMBNL")
+            try! FileManager.default.createDirectory(at: clips, withIntermediateDirectories: true)
+            try! FileManager.default.createDirectory(at: thumbnails, withIntermediateDirectories: true)
+            try! "klip".data(using: .utf8)!.write(to: clips.appendingPathComponent("C0001.MP4"))
+            try! "miniatura".data(using: .utf8)!.write(to: thumbnails.appendingPathComponent("C0001T01.JPG"))
+            let results = try! MediaScanner(enabledExtensions: ["mp4", "jpg"]).scan(volumeRoot: dir)
+            return results.map(\.url.lastPathComponent) == ["C0001.MP4"]
+        }
+
         print("")
         print("Wynik: \(passed) zdało, \(failed) nie zdało.")
         if failed > 0 { exit(1) }

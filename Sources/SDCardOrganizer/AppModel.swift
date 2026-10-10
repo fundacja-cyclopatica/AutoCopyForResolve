@@ -6,10 +6,17 @@ import SDCardOrganizerCore
 
 /// Obserwowalny model stanu aplikacji — zarządza do 4 kartami SD, ustawieniami i zgrywaniem.
 public final class AppModel: ObservableObject {
-    public static let showMainWindowNotification = Notification.Name("SDCardOrganizer.showMainWindow")
+    /// Identyfikator sceny okna głównego.
+    public static let mainWindowID = "main"
 
     @Published public var settings: Settings {
-        didSet { persistSettings() }
+        didSet {
+            persistSettings()
+            // Nowe typy plików — wyniki skanowania kart są nieaktualne.
+            if settings.enabledExtensions != oldValue.enabledExtensions, !isGlobalCopying {
+                scanAllCards()
+            }
+        }
     }
 
     /// Konfiguracje podłączonych kart (maksymalnie 4 karty obok siebie)
@@ -45,6 +52,12 @@ public final class AppModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var knownVolumeIDs = Set<String>()
     private var hasHandledInitialVolumes = false
+    /// Ostatnie zlecone skanowanie każdej karty — wynik starszego skanu jest odrzucany.
+    private var scanTokens: [String: UUID] = [:]
+
+    /// Otwiera okno główne. Ustawiane przez widok okna, bo akcja `openWindow` istnieje tylko
+    /// w środowisku SwiftUI, a okno trzeba umieć otworzyć ponownie także po jego zamknięciu.
+    public var openMainWindowAction: (() -> Void)?
 
     /// Maksymalna liczba źródeł (kart i ręcznie dodanych folderów) wyświetlanych obok siebie.
     public static let maxCards = 4
@@ -222,8 +235,19 @@ public final class AppModel: ObservableObject {
 
         // Automatycznie otwórz i wysuń okno aplikacji na pierwszy plan (pop-up)
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: AppModel.showMainWindowNotification, object: nil)
-            NSApp.activate(ignoringOtherApps: true)
+            self.showMainWindow()
+        }
+    }
+
+    /// Pokazuje okno główne — również wtedy, gdy użytkownik je wcześniej zamknął.
+    public func showMainWindow(openingSettings: Bool = false) {
+        if openingSettings {
+            isSettingsPanelOpen = true
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        if let openMainWindow = openMainWindowAction {
+            openMainWindow()
+        } else {
             for window in NSApp.windows where window.canBecomeKey {
                 window.makeKeyAndOrderFront(nil)
                 window.orderFrontRegardless()
@@ -254,13 +278,18 @@ public final class AppModel: ObservableObject {
         cardConfigs[index].isScanning = true
         let cardID = cardConfigs[index].id
         let extensions = settings.enabledExtensions
+        let token = UUID()
+        scanTokens[cardID] = token
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let scanner = MediaScanner(enabledExtensions: extensions)
             let results = (try? scanner.scan(volumeRoot: url)) ?? []
 
             DispatchQueue.main.async {
-                self?.updateCard(id: cardID) { card in
+                // W międzyczasie zlecono nowsze skanowanie tej karty — ten wynik jest nieaktualny.
+                guard let self, self.scanTokens[cardID] == token else { return }
+                self.scanTokens[cardID] = nil
+                self.updateCard(id: cardID) { card in
                     card.isScanning = false
                     card.setScanResults(results)
                 }
@@ -331,6 +360,16 @@ public final class AppModel: ObservableObject {
         let name = ProjectLayout.sanitize(projectName)
         guard !name.isEmpty else {
             setStatus("Podaj nazwę projektu.", isError: true)
+            return
+        }
+
+        let destination = URL(fileURLWithPath: settings.destinationRoot, isDirectory: true)
+        let filesToCopy = cardsToIngest.flatMap(\.filteredFiles)
+        if let problem = preflightProblem(destination: destination, files: filesToCopy) {
+            setStatus(problem, isError: true)
+            return
+        }
+        guard confirmFreeSpace(destination: destination, requiredBytes: filesToCopy.reduce(0) { $0 + $1.size }) else {
             return
         }
 
@@ -461,6 +500,53 @@ public final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: – Sprawdzenie dysku docelowego przed zgrywaniem
+
+    /// Zwraca opis problemu, przez który zgrywanie nie może się udać, albo `nil`.
+    private func preflightProblem(destination: URL, files: [MediaFile]) -> String? {
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: destination.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return "Dysk docelowy „\(destination.path)” jest niedostępny. Sprawdź, czy jest podłączony."
+        }
+        guard fm.isWritableFile(atPath: destination.path) else {
+            return "Brak uprawnień do zapisu na dysku docelowym „\(destination.path)”."
+        }
+        // FAT32 przyjmuje pliki do 4 GB — dłuższy klip i tak by się nie skopiował.
+        if let maxFileSize = (try? destination.resourceValues(forKeys: [.volumeMaximumFileSizeKey]))?.volumeMaximumFileSize,
+           let tooLarge = files.first(where: { $0.size > Int64(maxFileSize) }) {
+            return "Dysk docelowy nie przyjmie pliku \(tooLarge.url.lastPathComponent) (\(AppModel.formatBytes(tooLarge.size))) — "
+                + "limit systemu plików to \(AppModel.formatBytes(Int64(maxFileSize))). Użyj dysku sformatowanego jako APFS lub exFAT."
+        }
+        return nil
+    }
+
+    /// Gdy wybrane materiały mogą się nie zmieścić, pyta użytkownika, czy mimo to zgrywać.
+    /// Nie blokuje twardo, bo pliki zgrane już wcześniej do projektu zostaną pominięte.
+    private func confirmFreeSpace(destination: URL, requiredBytes: Int64) -> Bool {
+        let values = try? destination.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey
+        ])
+        guard values?.volumeAvailableCapacityForImportantUsage != nil || values?.volumeAvailableCapacity != nil else {
+            return true
+        }
+        let available = max(
+            values?.volumeAvailableCapacityForImportantUsage ?? 0,
+            Int64(values?.volumeAvailableCapacity ?? 0)
+        )
+        guard available < requiredBytes else { return true }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Na dysku docelowym może zabraknąć miejsca"
+        alert.informativeText = "Wybrane materiały zajmują \(AppModel.formatBytes(requiredBytes)), "
+            + "a wolne jest \(AppModel.formatBytes(available)). Pliki zgrane już wcześniej do tego projektu "
+            + "zostaną pominięte, więc faktycznie może być potrzebne mniej miejsca."
+        alert.addButton(withTitle: "Anuluj")
+        alert.addButton(withTitle: "Zgraj mimo to")
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     // MARK: – Otwieranie DaVinci Resolve i Lightroom

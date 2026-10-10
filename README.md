@@ -65,9 +65,10 @@ swift test
 Ustawienia przechowywane są w pliku:
 `~/Library/Application Support/SDCardOrganizer/settings.json`
 
-Można je zmieniać w oknie **Ustawienia**:
+Można je zmieniać w panelu **Ustawienia** w oknie głównym (również z menu ikony w pasku menu):
 - **Dysk docelowy** — folder, do którego trafią materiały.
-- **Typy plików** — które rozszerzenia zgrywać (Wideo, Dźwięk, Zdjęcia i RAW).
+- **Typy plików** — które rozszerzenia zgrywać (Wideo, Dźwięk, Zdjęcia i RAW). Podglądy DJI
+  `.LRF` są domyślnie wyłączone; miniatury kamer (np. Sony `THMBNL`) są zawsze pomijane.
 - **Projekt DaVinci Resolve** — rozdzielczość (np. `1920x1080`), liczba klatek (25 fps),
   opcjonalny wzorcowy plik `.drp`.
 

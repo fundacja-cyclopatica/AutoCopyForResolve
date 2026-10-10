@@ -303,6 +303,16 @@ struct CardColumnView: View {
                     isDisabled: config.totalPhotoCount == 0,
                     themeColor: StudioTheme.accentAmber
                 )
+
+                // Audio pokazujemy tylko, gdy karta je zawiera — inaczej zgrywałoby się niewidocznie.
+                if config.totalAudioCount > 0 {
+                    ToggleButton(
+                        label: "Audio (\(config.totalAudioCount))",
+                        isOn: $config.includeAudio,
+                        isDisabled: false,
+                        themeColor: StudioTheme.accentCyan
+                    )
+                }
             }
         }
         .padding(.top, 2)
@@ -345,7 +355,8 @@ struct CardColumnView: View {
                 // Przełącznik: Najnowszy / Wszystkie
                 if config.availableDays.count > 1 {
                     HStack(spacing: 0) {
-                        let isSingle = config.selectedDays.count == 1 && config.selectedDays.contains(config.availableDays.first?.dayString ?? "")
+                        let isSingle = config.isLatestDayOnlySelected
+                        let isAll = config.areAllDaysSelected
                         Button {
                             config.selectLatestDay()
                         } label: {
@@ -362,11 +373,11 @@ struct CardColumnView: View {
                             config.selectAllDays()
                         } label: {
                             Text("Wszystkie (\(config.availableDays.count))")
-                                .font(.system(size: 10, weight: !isSingle ? .semibold : .regular))
+                                .font(.system(size: 10, weight: isAll ? .semibold : .regular))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 3)
-                                .background(!isSingle ? Color.white.opacity(0.12) : Color.clear)
-                                .foregroundStyle(!isSingle ? Color.white : Color.gray)
+                                .background(isAll ? Color.white.opacity(0.12) : Color.clear)
+                                .foregroundStyle(isAll ? Color.white : Color.gray)
                         }
                         .buttonStyle(.plain)
                     }
@@ -380,6 +391,7 @@ struct CardColumnView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(config.availableDays) { day in
                             let isDaySelected = config.selectedDays.contains(day.dayString)
+                            let audioInfo = day.audioCount > 0 ? ", \(day.audioCount) audio" : ""
 
                             HStack(alignment: .top, spacing: 6) {
                                 Toggle("", isOn: Binding(
@@ -397,7 +409,7 @@ struct CardColumnView: View {
                                         .font(.system(size: 11, weight: isDaySelected ? .bold : .medium))
                                         .foregroundStyle(isDaySelected ? Color.white : Color.gray.opacity(0.8))
 
-                                    Text("\(day.videoCount) wideo, \(day.photoCount) zdjęć • \(AppModel.formatBytes(day.totalBytes))")
+                                    Text("\(day.videoCount) wideo, \(day.photoCount) zdjęć\(audioInfo) • \(AppModel.formatBytes(day.totalBytes))")
                                         .font(.system(size: 9, design: .monospaced))
                                         .foregroundStyle(isDaySelected ? Color.gray.opacity(0.9) : Color.gray.opacity(0.5))
                                 }
@@ -474,6 +486,7 @@ struct CardColumnView: View {
         HStack {
             let videos = config.filteredFiles.filter { $0.category == .video }.count
             let photos = config.filteredFiles.filter { $0.category == .photo }.count
+            let audio = config.filteredFiles.filter { $0.category == .audio }.count
 
             HStack(spacing: 8) {
                 HStack(spacing: 3) {
@@ -492,6 +505,17 @@ struct CardColumnView: View {
                     Text("\(photos)")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Color.gray.opacity(0.9))
+                }
+
+                if config.totalAudioCount > 0 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 10))
+                            .foregroundStyle(StudioTheme.accentCyan)
+                        Text("\(audio)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(Color.gray.opacity(0.9))
+                    }
                 }
             }
 

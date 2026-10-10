@@ -4,6 +4,7 @@ import SDCardOrganizerCore
 /// Główne okno aplikacji — macOS Studio Dark Glass UI.
 struct MainWindow: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -60,6 +61,12 @@ struct MainWindow: View {
             }
         }
         .frame(minWidth: 1060, minHeight: 680)
+        .onAppear {
+            // Pozwala paskowi menu otworzyć okno ponownie po jego zamknięciu.
+            model.openMainWindowAction = { [openWindow] in
+                openWindow(id: AppModel.mainWindowID)
+            }
+        }
         .alert("Zmień nazwę karty", isPresented: Binding(
             get: { model.renamingCardURL != nil },
             set: { if !$0 { model.renamingCardURL = nil } }

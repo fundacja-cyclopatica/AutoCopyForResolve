@@ -133,12 +133,8 @@ public final class MenuBarController: NSObject {
     }
 
     @objc private func openSettingsAction() {
-        if #available(macOS 14.0, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-        }
-        NSApp.activate(ignoringOtherApps: true)
+        // Ustawienia są panelem w oknie głównym (selektor `showSettingsWindow:` nie działa od macOS 14).
+        model.showMainWindow(openingSettings: true)
     }
 
     @objc private func quitAppAction() {
@@ -146,11 +142,6 @@ public final class MenuBarController: NSObject {
     }
 
     private func openMainWindow() {
-        NotificationCenter.default.post(name: AppModel.showMainWindowNotification, object: nil)
-        NSApp.activate(ignoringOtherApps: true)
-        for window in NSApp.windows where window.canBecomeKey {
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-        }
+        model.showMainWindow()
     }
 }

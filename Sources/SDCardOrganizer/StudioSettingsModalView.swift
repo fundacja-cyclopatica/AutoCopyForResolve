@@ -8,30 +8,6 @@ struct StudioSettingsModalView: View {
     @ObservedObject var model: AppModel
     let onClose: () -> Void
 
-    // Wszystkie znane rozszerzenia, pogrupowane wg kategorii.
-    private static let allExtensions: [(category: String, items: [(ext: String, label: String)])] = [
-        ("Wideo", [
-            ("mov", "MOV"), ("mp4", "MP4"), ("mxf", "MXF"), ("braw", "Blackmagic RAW (BRAW)"),
-            ("r3d", "RED R3D"), ("m4v", "M4V"), ("avi", "AVI"), ("mkv", "MKV"),
-            ("mts", "MTS/AVCHD"), ("m2ts", "M2TS"), ("crm", "Canon RAW (CRM)"), ("lrf", "DJI Low-Res (LRF)")
-        ]),
-        ("Zdjęcia i RAW", [
-            ("arw", "Sony RAW (ARW)"), ("srf", "Sony SRF"), ("sr2", "Sony SR2"),
-            ("cr2", "Canon CR2"), ("cr3", "Canon CR3"), ("crw", "Canon CRW"),
-            ("nef", "Nikon NEF"), ("nrw", "Nikon NRW"),
-            ("raf", "Fujifilm RAW (RAF)"),
-            ("rw2", "Panasonic RW2"),
-            ("orf", "Olympus ORF"), ("ori", "Olympus ORI"),
-            ("dng", "Adobe DNG / Dron RAW"), ("gpr", "GoPro RAW (GPR)"),
-            ("jpg", "JPG"), ("jpeg", "JPEG"), ("png", "PNG"), ("heic", "HEIC"), ("heif", "HEIF"),
-            ("tiff", "TIFF"), ("tif", "TIF"), ("raw", "Inne RAW")
-        ]),
-        ("Dźwięk", [
-            ("wav", "WAV"), ("mp3", "MP3"), ("aac", "AAC"), ("aiff", "AIFF"),
-            ("aif", "AIF"), ("m4a", "M4A"), ("flac", "FLAC")
-        ])
-    ]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Specular border
@@ -325,10 +301,10 @@ struct StudioSettingsModalView: View {
                 .controlSize(.small)
             }
 
-            ForEach(Self.allExtensions, id: \.category) { group in
+            ForEach(MediaFormats.groups, id: \.title) { group in
                 DisclosureGroup {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(group.items, id: \.ext) { item in
+                        ForEach(group.formats, id: \.ext) { item in
                             Toggle(item.label, isOn: binding(for: item.ext))
                                 .toggleStyle(.checkbox)
                                 .font(.system(size: 11))
@@ -337,7 +313,7 @@ struct StudioSettingsModalView: View {
                     .padding(.leading, 8)
                     .padding(.top, 4)
                 } label: {
-                    Text(group.category)
+                    Text(group.title)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Color.white.opacity(0.9))
                 }
@@ -459,15 +435,7 @@ struct StudioSettingsModalView: View {
     }
 
     private func selectAll(_ select: Bool) {
-        var all = Set<String>()
-        for group in Self.allExtensions {
-            for item in group.items { all.insert(item.ext) }
-        }
-        if select {
-            model.settings.enabledExtensions.formUnion(all)
-        } else {
-            model.settings.enabledExtensions.subtract(all)
-        }
+        model.settings.enabledExtensions = select ? MediaFormats.allExtensions : []
     }
 
     private func chooseDestination() {

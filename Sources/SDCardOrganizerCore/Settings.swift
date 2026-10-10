@@ -2,16 +2,8 @@ import Foundation
 
 /// Trwałe ustawienia aplikacji, zapisywane jako JSON w Application Support.
 public struct Settings: Codable, Equatable {
-    /// Domyślna lista rozszerzeń
-    public static let defaultExtensions: Set<String> = [
-        // Wideo
-        "mov", "mp4", "mxf", "braw", "r3d", "m4v", "avi", "mkv", "mpg", "mpeg", "mts", "m2ts", "crm", "lrf",
-        // Zdjęcia i RAW (Sony ARW, Canon CR2/CR3, Nikon NEF, Fuji RAF, DNG itp.)
-        "jpg", "jpeg", "png", "tiff", "tif", "heic", "heif", "dng", "arw", "srf", "sr2",
-        "cr2", "cr3", "crw", "nef", "nrw", "rw2", "orf", "ori", "raf", "pef", "gpr", "raw", "rwl",
-        // Audio
-        "wav", "mp3", "aac", "aiff", "aif", "m4a", "flac"
-    ]
+    /// Domyślna lista rozszerzeń (wszystkie obsługiwane poza podglądami DJI `.LRF`).
+    public static let defaultExtensions: Set<String> = MediaFormats.defaultExtensions
 
     /// Domyślne presety podpisów kamer
     public static let defaultCameraPresets: [String] = [
@@ -120,9 +112,6 @@ public struct SettingsStore {
             // zapisze w tym miejscu ustawienia domyślne.
             backUpUnreadableFile(at: url)
             settings = Settings()
-        }
-        if settings.enabledExtensions.isEmpty {
-            settings.enabledExtensions = Settings.defaultExtensions
         }
         if settings.cameraPresets.isEmpty {
             settings.cameraPresets = Settings.defaultCameraPresets

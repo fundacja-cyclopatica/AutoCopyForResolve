@@ -24,7 +24,7 @@ public struct CardIngestConfig: Identifiable, Equatable {
     /// Dostępne dni nagrań
     public var availableDays: [DaySummary]
 
-    /// Wybrane dni nagrań (jeśli puste, a availableDays niepuste -> brak wyboru)
+    /// Wybrane dni nagrań. Pusty zbiór oznacza, że nic nie jest wybrane do zgrania.
     public var selectedDays: Set<String>
 
     /// Filtry typów mediów dla danej karty
@@ -76,14 +76,8 @@ public struct CardIngestConfig: Identifiable, Equatable {
 
     /// Pliki pasujące do wybranych dni oraz zaznaczonych typów (filmy/zdjęcia/audio)
     public var filteredFiles: [MediaFile] {
-        let dayFiltered: [MediaFile]
-        if selectedDays.isEmpty {
-            dayFiltered = scannedFiles
-        } else {
-            dayFiltered = scannedFiles.filter { selectedDays.contains($0.dayString) }
-        }
-
-        return dayFiltered.filter { file in
+        scannedFiles.filter { file in
+            guard selectedDays.contains(file.dayString) else { return false }
             switch file.category {
             case .video: return includeVideos
             case .photo: return includePhotos
@@ -140,6 +134,17 @@ public struct CardIngestConfig: Identifiable, Equatable {
     public var photoPercent: Double {
         guard let total = totalCapacity, total > 0 else { return 0.05 }
         return max(0.01, min(0.9, Double(photoBytes) / Double(total)))
+    }
+
+    /// Czy wybrany jest dokładnie najnowszy dzień.
+    public var isLatestDayOnlySelected: Bool {
+        guard let latest = availableDays.first?.dayString else { return false }
+        return selectedDays == [latest]
+    }
+
+    /// Czy wybrane są wszystkie dni z karty.
+    public var areAllDaysSelected: Bool {
+        !availableDays.isEmpty && selectedDays.count == availableDays.count
     }
 
     /// Szybki wybór najnowszego dnia
