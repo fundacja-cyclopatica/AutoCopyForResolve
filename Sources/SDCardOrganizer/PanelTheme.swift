@@ -8,6 +8,10 @@ enum PanelTheme {
     // Akcent (musztardowy) i jego poświata
     static let accent = Color(red: 249/255, green: 169/255, blue: 2/255)          // #F9A902
 
+    // Kolory aplikacji docelowych (przełączniki „Otwórz DaVinci / Lightroom”)
+    static let davinciAccent = Color(red: 255/255, green: 112/255, blue: 67/255)  // #FF7043
+    static let lightroomAccent = Color(red: 49/255, green: 168/255, blue: 255/255) // #31A8FF
+
     // Tła
     static let backgroundTop = Color(red: 16/255, green: 17/255, blue: 20/255)    // #101114
     static let backgroundBottom = Color(red: 10/255, green: 11/255, blue: 13/255) // #0A0B0D

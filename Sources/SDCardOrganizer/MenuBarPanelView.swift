@@ -363,11 +363,13 @@ struct MenuBarPanelView: View {
         HStack(spacing: 8) {
             PanelAppToggle(
                 title: "Otwórz DaVinci",
+                accent: PanelTheme.davinciAccent,
                 badge: { davinciBadge },
                 isOn: $model.settings.openInDaVinciResolve
             )
             PanelAppToggle(
                 title: "Otwórz Lightroom",
+                accent: PanelTheme.lightroomAccent,
                 badge: {
                     Text("LrC")
                         .font(.system(size: 9.5, weight: .black))
@@ -534,6 +536,8 @@ struct MenuBarPanelView: View {
 
 private struct PanelAppToggle<Badge: View>: View {
     let title: String
+    /// Kolor aplikacji — po włączeniu barwi kartę, ramkę, ikonę i przełącznik oraz daje lekką poświatę.
+    let accent: Color
     @ViewBuilder let badge: () -> Badge
     @Binding var isOn: Bool
 
@@ -541,26 +545,47 @@ private struct PanelAppToggle<Badge: View>: View {
         HStack(spacing: 8) {
             badge()
                 .frame(width: 24, height: 24)
-                .background(PanelTheme.cardInner)
+                .background(isOn ? accent.opacity(0.22) : PanelTheme.cardInner)
                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(PanelTheme.borderStrong, lineWidth: 1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(isOn ? accent.opacity(0.7) : PanelTheme.borderStrong, lineWidth: 1)
+                )
+                .shadow(color: isOn ? accent.opacity(0.5) : .clear, radius: 5)
             Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.9))
+                .font(.system(size: 12, weight: isOn ? .semibold : .medium))
+                .foregroundStyle(isOn ? Color.white : Color.white.opacity(0.75))
                 .lineLimit(1)
             Spacer(minLength: 4)
             Toggle("", isOn: $isOn)
                 .toggleStyle(.switch)
                 .labelsHidden()
                 .controlSize(.small)
-                .tint(.white)
+                .tint(accent)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity)
-        .background(PanelTheme.card)
+        .background(
+            ZStack {
+                PanelTheme.card
+                if isOn {
+                    // Delikatny gradient w kolorze aplikacji od strony ikony
+                    LinearGradient(
+                        colors: [accent.opacity(0.18), accent.opacity(0.04)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                }
+            }
+        )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(PanelTheme.border, lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isOn ? accent.opacity(0.55) : PanelTheme.border, lineWidth: 1)
+        )
+        .shadow(color: isOn ? accent.opacity(0.35) : .clear, radius: 10)
+        .animation(.easeInOut(duration: 0.25), value: isOn)
     }
 }
 
