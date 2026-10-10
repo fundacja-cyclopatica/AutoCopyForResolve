@@ -9,7 +9,7 @@ Stan na commit `542cde3` (2026-10-09). Przejrzany cały kod: `SDCardOrganizerCor
 > macOS/SwiftUI i warto je sprawdzić ręcznie.
 
 > **Status poprawek:** B1–B16 oraz błędy w obsłudze okien są naprawione; z propozycji UX
-> zrobione są punkty 1–9, 12 i 13 (zob. historię gałęzi
+> zrobione są wszystkie punkty 1–15 (11: wymuszony ciemny motyw i „Ogranicz ruch”, bez trybu jasnego) (zob. historię gałęzi
 > `claude/intelligent-keller-legdgb`). Pozostałe punkty czekają na realizację.
 
 Priorytety: 🔴 krytyczne (utrata danych / crash / zablokowany główny scenariusz),
@@ -226,17 +226,17 @@ przełączniki filtrów, które w trakcie i tak nic nie zmieniają, a mylą.
    wersją z `Info.plist`, liczbą kart, wolnym miejscem na dysku docelowym.
 9. ✅ **Polska odmiana liczebników:** „1 plików”, „2 kart(y)”, „1 skopiowanych”. Warto mieć
    helper `plural(n, "plik", "pliki", "plików")` albo `.stringsdict`.
-10. **Panel ustawień:** przycisk zamknięcia udaje czerwony „semafor” okna macOS, co myli
+10. ✅ **Panel ustawień:** przycisk zamknięcia udaje czerwony „semafor” okna macOS, co myli
     użytkownika. Lepiej dać zwykły „×” albo „Gotowe”, zamykanie klawiszem **Esc** i
     przyciemnienie tła pod panelem.
-11. **Tryb jasny / dostępność:** motyw jest na sztywno ciemny. Warto choć respektować
+11. ✅ **Tryb jasny / dostępność:** motyw jest na sztywno ciemny. Warto choć respektować
     „Zwiększ kontrast” i „Ogranicz ruch” (spring-animacje i poświaty).
 12. ✅ **Skróty klawiszowe:** ⌘R (skanuj), ⌘↩ (zgraj), ⌘, (ustawienia), ⌘E (wysuń wszystkie).
 13. ✅ **Historia:** „Pokaż w Finderze” przy wpisie, liczba pominiętych i błędów, potwierdzenie
     przed „Wyczyść historię” (teraz kasuje bez pytania).
-14. **Lista dni:** przy wielu dniach dodaj zakres („ostatnie 3 dni”) i podgląd miniatur.
+14. ✅ **Lista dni:** przy wielu dniach dodaj zakres („ostatnie 3 dni”) i podgląd miniatur.
     Kolumna jest wąska, więc lista na 110 pt przy 10+ dniach jest mało wygodna.
-15. **Okno:** `minWidth: 1060` nie mieści się wygodnie na 13" MacBooku z Dockiem. Przy
+15. ✅ **Okno:** `minWidth: 1060` nie mieści się wygodnie na 13" MacBooku z Dockiem. Przy
     jednej karcie pusta przestrzeń jest marnowana; lepiej dopasować kolumny do szerokości
     okna.
 

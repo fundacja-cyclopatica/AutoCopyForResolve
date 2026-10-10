@@ -147,6 +147,17 @@ public struct CardIngestConfig: Identifiable, Equatable {
         !availableDays.isEmpty && selectedDays.count == availableDays.count
     }
 
+    /// Czy wybrane są dokładnie `count` najnowsze dni.
+    public func areLatestDaysSelected(_ count: Int) -> Bool {
+        guard availableDays.count >= count else { return false }
+        return selectedDays == Set(availableDays.prefix(count).map(\.dayString))
+    }
+
+    /// Szybki wybór kilku najnowszych dni (np. trzydniowe wesele lub plan zdjęciowy).
+    public mutating func selectLatestDays(_ count: Int) {
+        selectedDays = Set(availableDays.prefix(count).map(\.dayString))
+    }
+
     /// Szybki wybór najnowszego dnia
     public mutating func selectLatestDay() {
         if let latest = availableDays.first?.dayString {

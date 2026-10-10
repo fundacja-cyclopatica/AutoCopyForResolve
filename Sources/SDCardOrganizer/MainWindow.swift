@@ -6,6 +6,7 @@ struct MainWindow: View {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @State private var isConfirmingHistoryClear = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -44,13 +45,16 @@ struct MainWindow: View {
 
             // Pływające okno ustawień (Floating Studio Settings Panel)
             if model.isSettingsPanelOpen {
+                // Przyciemnienie tła — kliknięcie obok panelu go zamyka
+                Color.black.opacity(0.35)
+                    .contentShape(Rectangle())
+                    .onTapGesture { closeSettingsPanel() }
+                    .transition(.opacity)
+                    .zIndex(99)
+
                 StudioSettingsModalView(
                     model: model,
-                    onClose: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            model.isSettingsPanelOpen = false
-                        }
-                    }
+                    onClose: { closeSettingsPanel() }
                 )
                 .padding(.top, 46)
                 .padding(.trailing, 16)
@@ -61,7 +65,15 @@ struct MainWindow: View {
                 .zIndex(100)
             }
         }
-        .frame(minWidth: 1060, minHeight: 680)
+        .frame(minWidth: 960, minHeight: 620)
+        // Interfejs jest projektowany pod ciemny motyw — systemowe alerty i menu też ciemne.
+        .preferredColorScheme(.dark)
+        // „Ogranicz ruch” w ustawieniach dostępności wyłącza animacje sprężynowe.
+        .transaction { transaction in
+            if reduceMotion {
+                transaction.animation = nil
+            }
+        }
         .onAppear {
             // Pozwala paskowi menu otworzyć okno ponownie po jego zamknięciu.
             model.openMainWindowAction = { [openWindow] in
@@ -371,45 +383,66 @@ struct MainWindow: View {
     // MARK: – Główna strefa kart (MainCardsGrid - do 4 kolumn)
 
     private var mainIngestWorkspace: some View {
-        ScrollView(.horizontal, showsIndicators: true) {
-            HStack(alignment: .top, spacing: 14) {
-                // Wyświetl podłączone karty (do 4)
-                // Karty identyfikowane po id (nie po indeksie) — wysunięcie karty nie
-                // unieważnia bindingów pozostałych kolumn.
-                ForEach(Array(model.cardConfigs.enumerated()), id: \.element.id) { index, config in
-                    CardColumnView(
-                        config: cardBinding(for: config),
-                        cardIndex: index,
-                        cameraPresets: model.settings.cameraPresets,
-                        isLocked: model.isGlobalCopying,
-                        onRescan: {
-                            model.scanCard(url: config.volumeURL)
-                        },
-                        onEject: {
-                            model.ejectCard(url: config.volumeURL)
-                        },
-                        onPromptRename: {
-                            model.renameInputText = config.volumeName
-                            model.renamingCardURL = config.volumeURL
-                        },
-                        onOpenSettings: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                model.isSettingsPanelOpen = true
-                            }
-                        }
-                    )
-                }
+        GeometryReader { geometry in
+            let showsEmptySlot = model.cardConfigs.count < AppModel.maxCards
+            let columnWidth = Self.columnWidth(
+                availableWidth: geometry.size.width,
+                columns: model.cardConfigs.count + (showsEmptySlot ? 1 : 0)
+            )
 
-                // Jeśli podłączono mniej niż 4 karty, wyświetl slot wolny
-                if model.cardConfigs.count < AppModel.maxCards {
-                    EmptyCardSlotView(onChooseFolder: {
-                        model.addManualFolder()
-                    })
+            ScrollView(.horizontal, showsIndicators: true) {
+                HStack(alignment: .top, spacing: Self.columnSpacing) {
+                    // Wyświetl podłączone karty (do 4)
+                    // Karty identyfikowane po id (nie po indeksie) — wysunięcie karty nie
+                    // unieważnia bindingów pozostałych kolumn.
+                    ForEach(Array(model.cardConfigs.enumerated()), id: \.element.id) { index, config in
+                        CardColumnView(
+                            config: cardBinding(for: config),
+                            cardIndex: index,
+                            cameraPresets: model.settings.cameraPresets,
+                            isLocked: model.isGlobalCopying,
+                            onRescan: {
+                                model.scanCard(url: config.volumeURL)
+                            },
+                            onEject: {
+                                model.ejectCard(url: config.volumeURL)
+                            },
+                            onPromptRename: {
+                                model.renameInputText = config.volumeName
+                                model.renamingCardURL = config.volumeURL
+                            },
+                            onOpenSettings: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    model.isSettingsPanelOpen = true
+                                }
+                            }
+                        )
+                        .frame(width: columnWidth)
+                    }
+
+                    // Jeśli podłączono mniej niż 4 karty, wyświetl slot wolny
+                    if showsEmptySlot {
+                        EmptyCardSlotView(onChooseFolder: {
+                            model.addManualFolder()
+                        })
+                        .frame(width: columnWidth)
+                    }
                 }
+                .padding(Self.workspacePadding)
             }
-            .padding(16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private static let columnSpacing: CGFloat = 14
+    private static let workspacePadding: CGFloat = 16
+
+    /// Kolumny wypełniają szerokość okna (260–420 pt każda); gdy się nie mieszczą,
+    /// obszar przewija się poziomo.
+    private static func columnWidth(availableWidth: CGFloat, columns: Int) -> CGFloat {
+        let count = CGFloat(max(1, columns))
+        let usable = availableWidth - 2 * workspacePadding - columnSpacing * (count - 1)
+        return min(420, max(260, usable / count))
     }
 
     // MARK: – Dolny pasek akcji (GlobalActionBar)
@@ -612,7 +645,8 @@ struct MainWindow: View {
         }
         .buttonStyle(.plain)
         .disabled(transfer.isCancelling)
-        .keyboardShortcut(.cancelAction)
+        // Gdy otwarty jest panel ustawień, Esc zamyka panel, a nie przerywa zgrywania.
+        .keyboardShortcut(model.isSettingsPanelOpen ? nil : .cancelAction)
         .help("Przerwij zgrywanie (Esc). Pliki już skopiowane zostaną w projekcie.")
     }
 
@@ -721,6 +755,12 @@ struct MainWindow: View {
     }
 
     // MARK: – Narzędzia pomocnicze
+
+    private func closeSettingsPanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            model.isSettingsPanelOpen = false
+        }
+    }
 
     /// Binding do karty wyszukiwanej po `id`. Gdy karta zniknie z listy, odczyt zwraca
     /// ostatni znany stan, a zapis jest ignorowany (zamiast crasha „Index out of range”).

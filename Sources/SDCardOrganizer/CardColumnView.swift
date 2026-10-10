@@ -68,7 +68,8 @@ struct CardColumnView: View {
             cardFooter
         }
         .padding(14)
-        .frame(minWidth: 260, maxWidth: 320)
+        // Szerokość kolumny ustala okno główne (dopasowanie do liczby kart i szerokości okna)
+        .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(StudioTheme.cardBg)
@@ -352,7 +353,7 @@ struct CardColumnView: View {
                     .foregroundStyle(Color.gray.opacity(0.8))
                     .padding(.vertical, 2)
             } else {
-                // Przełącznik: Najnowszy / Wszystkie
+                // Przełącznik: Najnowszy / 3 dni / Wszystkie
                 if config.availableDays.count > 1 {
                     HStack(spacing: 0) {
                         let isSingle = config.isLatestDayOnlySelected
@@ -368,6 +369,22 @@ struct CardColumnView: View {
                                 .foregroundStyle(isSingle ? Color.white : Color.gray)
                         }
                         .buttonStyle(.plain)
+
+                        // Skrót dla kilkudniowych zleceń (wesele, plan zdjęciowy)
+                        if config.availableDays.count > 3 {
+                            let isLatestThree = config.areLatestDaysSelected(3)
+                            Button {
+                                config.selectLatestDays(3)
+                            } label: {
+                                Text("3 dni")
+                                    .font(.system(size: 10, weight: isLatestThree ? .semibold : .regular))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 3)
+                                    .background(isLatestThree ? Color.white.opacity(0.12) : Color.clear)
+                                    .foregroundStyle(isLatestThree ? Color.white : Color.gray)
+                            }
+                            .buttonStyle(.plain)
+                        }
 
                         Button {
                             config.selectAllDays()
@@ -428,7 +445,7 @@ struct CardColumnView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 110)
+                .frame(maxHeight: config.availableDays.count > 4 ? 170 : 120)
             }
         }
         .padding(.top, 2)

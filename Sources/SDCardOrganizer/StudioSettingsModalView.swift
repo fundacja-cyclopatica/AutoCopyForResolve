@@ -18,33 +18,24 @@ struct StudioSettingsModalView: View {
             )
             .frame(height: 1)
 
-            // Pasek tytułowy okna ustawień
+            // Pasek tytułowy panelu ustawień
             HStack(spacing: 8) {
-                Button {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 12))
+                    .foregroundStyle(StudioTheme.accentCyan)
+                Text("Ustawienia")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.white)
+
+                Spacer()
+
+                Button("Gotowe") {
                     onClose()
-                } label: {
-                    Circle()
-                        .fill(Color(red: 255/255, green: 95/255, blue: 86/255))
-                        .frame(width: 11, height: 11)
-                        .overlay(Circle().stroke(Color(red: 224/255, green: 68/255, blue: 62/255).opacity(0.6), lineWidth: 0.5))
                 }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                HStack(spacing: 6) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.gray)
-                    Text("SD Card Organizer Settings")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.gray.opacity(0.9))
-                }
-
-                Spacer()
-
-                // Pusta przestrzeń dla symetrii (usunięty przycisk rozwijania do drugiego okna)
-                Color.clear.frame(width: 20, height: 20)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .keyboardShortcut(.cancelAction)
+                .help("Zamknij ustawienia (Esc)")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

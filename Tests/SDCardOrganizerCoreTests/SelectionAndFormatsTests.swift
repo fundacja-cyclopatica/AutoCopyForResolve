@@ -53,6 +53,25 @@ final class SelectionAndFormatsTests: XCTestCase {
         XCTAssertEqual(config.filteredFiles.map(\.url.lastPathComponent).sorted(), ["a.mov", "b.mov"])
     }
 
+    func testSelectLatestThreeDays() {
+        var config = CardIngestConfig(volumeURL: URL(fileURLWithPath: "/Volumes/Card"), volumeName: "Card")
+        let start = Date(timeIntervalSince1970: 1_780_000_000)
+        config.setScanResults((0..<5).map { day in
+            MediaFile(
+                url: URL(fileURLWithPath: "/Volumes/Card/C\(day).mov"),
+                category: .video,
+                size: 10,
+                date: start.addingTimeInterval(Double(day) * 86_400 * 2)
+            )
+        })
+
+        config.selectLatestDays(3)
+
+        XCTAssertTrue(config.areLatestDaysSelected(3))
+        XCTAssertFalse(config.isLatestDayOnlySelected)
+        XCTAssertEqual(config.filteredFiles.map(\.url.lastPathComponent).sorted(), ["C2.mov", "C3.mov", "C4.mov"])
+    }
+
     // MARK: – Katalog formatów
 
     func testCatalogIsSingleSourceOfTruth() {

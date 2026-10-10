@@ -52,7 +52,7 @@ struct EmptyCardSlotView: View {
             Spacer()
         }
         .padding(16)
-        .frame(minWidth: 260, maxWidth: 320, minHeight: 460)
+        .frame(maxWidth: .infinity, minHeight: 460)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.black.opacity(0.25))

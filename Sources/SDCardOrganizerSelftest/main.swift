@@ -389,6 +389,17 @@ struct SelfTest {
             return layout.root.lastPathComponent == "2026-10-08_Wesele"
         }
 
+        check("Wybór trzech najnowszych dni") {
+            var config = CardIngestConfig(volumeURL: URL(fileURLWithPath: "/Volumes/Card"), volumeName: "Card")
+            let start = Date(timeIntervalSince1970: 1_780_000_000)
+            config.setScanResults((0..<5).map { day in
+                MediaFile(url: URL(fileURLWithPath: "/Volumes/Card/C\(day).mov"), category: .video, size: 10,
+                          date: start.addingTimeInterval(Double(day) * 86_400 * 2))
+            })
+            config.selectLatestDays(3)
+            return config.areLatestDaysSelected(3) && config.filteredFiles.count == 3
+        }
+
         print("")
         print("Wynik: \(passed) zdało, \(failed) nie zdało.")
         if failed > 0 { exit(1) }
