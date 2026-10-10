@@ -6,54 +6,121 @@ import SDCardOrganizerCore
 
 /// Obserwowalny model stanu aplikacji — zarządza do 4 kartami SD, ustawieniami i zgrywaniem.
 public final class AppModel: ObservableObject {
-    public static let showMainWindowNotification = Notification.Name("SDCardOrganizer.showMainWindow")
+    /// Identyfikator sceny okna ustawień i historii.
+    public static let settingsWindowID = "settings"
+
+    /// Zakładki okna ustawień.
+    public enum SettingsTab: Hashable {
+        case settings
+        case history
+    }
 
     @Published public var settings: Settings {
-        didSet { persistSettings() }
+        didSet {
+            persistSettings()
+            // Nowe typy plików — wyniki skanowania kart są nieaktualne.
+            if settings.enabledExtensions != oldValue.enabledExtensions, !isGlobalCopying {
+                scanAllCards()
+            }
+            if settings.destinationRoot != oldValue.destinationRoot
+                || settings.backupDestinationRoot != oldValue.backupDestinationRoot {
+                refreshDestinationInfo()
+            }
+        }
     }
 
     /// Konfiguracje podłączonych kart (maksymalnie 4 karty obok siebie)
     @Published public var cardConfigs: [CardIngestConfig] = []
 
     /// Globalna nazwa projektu
-    @Published public var projectName: String = ""
+    @Published public var projectName: String = "" {
+        didSet {
+            // Wpisanie nazwy ręcznie oznacza nowy projekt z dzisiejszą datą.
+            if projectName != oldValue {
+                projectDate = nil
+            }
+        }
+    }
+
+    /// Data istniejącego projektu wybranego z listy (dogrywanie do projektu z innego dnia);
+    /// `nil` — projekt z dzisiejszą datą.
+    @Published public private(set) var projectDate: Date?
+
+    /// Projekty istniejące na dysku docelowym, od najnowszego.
+    @Published public private(set) var existingProjects: [ExistingProject] = []
+
+    /// Wolne miejsce na dysku docelowym; `nil`, gdy dysk jest niedostępny lub nie wybrany.
+    @Published public private(set) var destinationFreeSpace: Int64?
+
+    /// Czy wybrany folder docelowy istnieje (dysk jest podłączony).
+    @Published public private(set) var isDestinationAvailable = false
+
+    /// Czy folder kopii zapasowej istnieje (gdy kopia zapasowa jest włączona).
+    @Published public private(set) var isBackupAvailable = false
+
+    /// Wolne miejsce w miejscu kopii zapasowej.
+    @Published public private(set) var backupFreeSpace: Int64?
 
     /// Stan globalny zgrywania
     @Published public var isGlobalCopying: Bool = false
     @Published public var overallProgress: Double = 0
+    /// Bajty, prędkość i czas do końca trwającego zgrywania (`nil`, gdy nic się nie zgrywa).
+    @Published public private(set) var transfer: TransferStatus?
+    /// Podsumowanie ostatniej sesji — jego ustawienie pokazuje arkusz z wynikami.
+    @Published public var lastSession: IngestSessionSummary?
     @Published public var statusMessage: String = ""
     @Published public var statusIsError: Bool = false
 
-    /// Historia i nawigacja
+    /// Historia i zakładka okna ustawień
     @Published public var history: [IngestRecord] = []
-    @Published public var selectedTab: Int = 0
+    @Published public var selectedTab: SettingsTab = .settings
 
-    /// Dialog zmiany nazwy karty
-    @Published public var renamingCardURL: URL? = nil
-    @Published public var renameInputText: String = ""
-
-    /// Zarządzanie presetami kamer
+    /// Pole dodawania nowego presetu kamery w ustawieniach
     @Published public var newPresetInputText: String = ""
-    @Published public var isShowingPresetSheet: Bool = false
-
-    /// Stan bocznego panelu ustawień w oknie
-    @Published public var isSettingsPanelOpen: Bool = false
 
     public let volumeMonitor = VolumeMonitor()
 
     private let settingsURL: URL
     private var cancellables = Set<AnyCancellable>()
     private var knownVolumeIDs = Set<String>()
+    private var hasHandledInitialVolumes = false
+    /// Ostatnie zlecone skanowanie każdej karty — wynik starszego skanu jest odrzucany.
+    private var scanTokens: [String: UUID] = [:]
+    private var activeCancellation: CancellationToken?
+    private static let lastTransferSpeedKey = "lastTransferBytesPerSecond"
+
+    /// Otwiera okno ustawień. Ustawiane przez widok okna, bo akcja `openWindow` istnieje tylko
+    /// w środowisku SwiftUI, a okno trzeba umieć otworzyć ponownie także po jego zamknięciu.
+    public var openSettingsWindowAction: (() -> Void)?
+
+    /// Pokazuje wysuwany panel z paska menu (ustawiane przez `MenuBarController`).
+    public var showPanelAction: (() -> Void)?
+
+    /// Czy okno ustawień ma się schować przy starcie aplikacji — SwiftUI otwiera je samo,
+    /// a główną formą pracy jest panel z paska menu.
+    public var hidesSettingsWindowAtLaunch = true
+
+    /// Maksymalna liczba źródeł (kart i ręcznie dodanych folderów) wyświetlanych obok siebie.
+    public static let maxCards = 4
 
     private let defaultLabels = ["Kamera A", "Kamera B", "Kamera C", "Dron"]
+
+    /// Powiadomienia systemowe działają tylko w aplikacji z pakietem `.app` — przy uruchomieniu
+    /// gołej binarki (`swift run`) `UNUserNotificationCenter.current()` kończy proces wyjątkiem.
+    private static var notificationsAvailable: Bool {
+        Bundle.main.bundleIdentifier != nil
+    }
 
     public init(settingsURL: URL = Settings.defaultSettingsURL()) {
         self.settingsURL = settingsURL
         self.settings = (try? SettingsStore.load(from: settingsURL)) ?? Settings()
         self.history = IngestHistory.load()
+        refreshDestinationInfo()
 
         // Poproś o uprawnienia do powiadomień
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        if Self.notificationsAvailable {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
 
         // Reaguj na zmiany podłączonych kart
         volumeMonitor.$removableVolumes
@@ -66,6 +133,132 @@ public final class AppModel: ObservableObject {
 
     private func persistSettings() {
         try? SettingsStore.save(settings, to: settingsURL)
+    }
+
+    // MARK: – Projekt i dysk docelowy
+
+    /// Odświeża listę projektów i wolne miejsce na dysku docelowym.
+    public func refreshDestinationInfo() {
+        let root = settings.destinationRoot
+        var isDirectory: ObjCBool = false
+        isDestinationAvailable = !root.isEmpty
+            && FileManager.default.fileExists(atPath: root, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+        existingProjects = isDestinationAvailable ? ProjectCatalog.projects(in: root) : []
+
+        destinationFreeSpace = isDestinationAvailable ? Self.freeSpace(at: root) : nil
+
+        let backupRoot = settings.backupDestinationRoot
+        var isBackupDirectory: ObjCBool = false
+        isBackupAvailable = !backupRoot.isEmpty
+            && FileManager.default.fileExists(atPath: backupRoot, isDirectory: &isBackupDirectory)
+            && isBackupDirectory.boolValue
+        backupFreeSpace = isBackupAvailable ? Self.freeSpace(at: backupRoot) : nil
+    }
+
+    /// Wolne miejsce na wolumenie, na którym leży `path`.
+    private static func freeSpace(at path: String) -> Int64? {
+        let values = try? URL(fileURLWithPath: path, isDirectory: true).resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey
+        ])
+        let important = values?.volumeAvailableCapacityForImportantUsage
+        let plain = values?.volumeAvailableCapacity.map(Int64.init)
+        return (important != nil || plain != nil) ? max(important ?? 0, plain ?? 0) : nil
+    }
+
+    /// Nazwa wolumenu kopii zapasowej (np. „BACKUP HDD”).
+    public var backupVolumeName: String? {
+        guard isBackupAvailable else { return nil }
+        return (try? URL(fileURLWithPath: settings.backupDestinationRoot).resourceValues(forKeys: [.volumeNameKey]))?.volumeName
+    }
+
+    /// Nazwa wolumenu, na którym leży folder docelowy (np. „MONTAŻ SSD”).
+    public var destinationVolumeName: String? {
+        guard isDestinationAvailable else { return nil }
+        return (try? URL(fileURLWithPath: settings.destinationRoot).resourceValues(forKeys: [.volumeNameKey]))?.volumeName
+    }
+
+    // MARK: – Własna ikona w pasku menu
+
+    /// Kopiuje wybrany obraz do Application Support (ikona działa dalej, nawet gdy oryginał
+    /// zostanie przeniesiony) i ustawia go jako ikonę w pasku menu.
+    public func importCustomMenuBarIcon(from source: URL) throws {
+        guard NSImage(contentsOf: source) != nil else {
+            throw NSError(domain: "SDCardOrganizer", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Nie udało się odczytać obrazu „\(source.lastPathComponent)”."
+            ])
+        }
+        let directory = settingsURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ext = source.pathExtension.isEmpty ? "png" : source.pathExtension.lowercased()
+        let target = directory.appendingPathComponent("MenuBarIcon-\(UUID().uuidString.prefix(8)).\(ext)")
+        try FileManager.default.copyItem(at: source, to: target)
+
+        removeStoredCustomIcon()
+        settings.customMenuBarIconPath = target.path
+        settings.menuBarIconStyle = .custom
+    }
+
+    /// Usuwa własną ikonę i wraca do ikony automatycznej.
+    public func removeCustomMenuBarIcon() {
+        removeStoredCustomIcon()
+        settings.customMenuBarIconPath = nil
+        if settings.menuBarIconStyle == .custom {
+            settings.menuBarIconStyle = .automatic
+        }
+    }
+
+    /// Kasuje plik poprzedniej własnej ikony (tylko kopię w folderze aplikacji).
+    private func removeStoredCustomIcon() {
+        guard let path = settings.customMenuBarIconPath,
+              path.hasPrefix(settingsURL.deletingLastPathComponent().path) else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    /// Dogrywanie do projektu, który już istnieje na dysku (także z innego dnia).
+    public func selectExistingProject(_ project: ExistingProject) {
+        projectName = project.name
+        projectDate = project.date
+    }
+
+    /// Pełna ścieżka folderu, do którego trafi materiał, albo `nil`, gdy brak danych.
+    public var destinationPreviewPath: String? {
+        let name = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !settings.destinationRoot.isEmpty, !name.isEmpty else { return nil }
+        return ProjectLayout(
+            destinationRoot: settings.destinationRoot,
+            projectName: name,
+            date: projectDate ?? Date()
+        ).root.path
+    }
+
+    /// Dlaczego nie można teraz zacząć zgrywania (`nil` — można).
+    public var copyBlockedReason: String? {
+        if cardConfigs.isEmpty {
+            return "Włóż kartę lub dodaj folder ze źródłem."
+        }
+        if enabledCards.isEmpty {
+            return "Włącz co najmniej jedną kartę."
+        }
+        if enabledCards.contains(where: \.isScanning) {
+            return "Trwa skanowanie kart…"
+        }
+        if totalFilesToCopy == 0 {
+            return "Zaznacz dni i typy materiałów do zgrania."
+        }
+        if settings.destinationRoot.isEmpty {
+            return "Wybierz dysk docelowy."
+        }
+        if !isDestinationAvailable {
+            return "Dysk docelowy jest niedostępny — podłącz go."
+        }
+        if !settings.backupDestinationRoot.isEmpty && !isBackupAvailable {
+            return "Dysk kopii zapasowej jest niedostępny — podłącz go albo wyłącz kopię w ustawieniach."
+        }
+        if projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Wpisz nazwę projektu."
+        }
+        return nil
     }
 
     // MARK: – Właściwości wyliczeniowe dla wszystkich kart
@@ -94,18 +287,26 @@ public final class AppModel: ObservableObject {
         return hasP && !hasVideos
     }
 
-    /// Szacowany czas transferu przy prędkości magistrali
+    /// Szacowany czas zgrywania na podstawie prędkości zmierzonej przy ostatnim zgraniu.
+    /// Bez wcześniejszego pomiaru nie zgadujemy — prędkość kart różni się kilkukrotnie.
     public var estimatedTransferInfo: String {
-        guard totalBytesToCopy > 0 else { return "Gotowy" }
-        let assumedSpeed: Double = 350 * 1024 * 1024
-        let seconds = max(1, Int(Double(totalBytesToCopy) / assumedSpeed))
-        if seconds < 60 {
-            return "~\(seconds)s (~350 MB/s)"
-        } else {
-            let mins = seconds / 60
-            let remSecs = seconds % 60
-            return "~\(mins)m \(remSecs)s (~350 MB/s)"
+        guard totalBytesToCopy > 0 else { return "—" }
+        let speed = UserDefaults.standard.double(forKey: Self.lastTransferSpeedKey)
+        guard speed > 0 else { return "zmierzę przy pierwszym zgraniu" }
+        let seconds = Double(totalBytesToCopy) / speed
+        return "~\(AppModel.formatDuration(seconds)) (ostatnio \(AppModel.formatBytes(Int64(speed)))/s)"
+    }
+
+    /// Czas w czytelnej postaci: „45 s”, „3 min 20 s”, „1 h 05 min”.
+    public static func formatDuration(_ seconds: Double) -> String {
+        let total = max(1, Int(seconds.rounded()))
+        if total < 60 {
+            return "\(total) s"
         }
+        if total < 3600 {
+            return "\(total / 60) min \(total % 60) s"
+        }
+        return String(format: "%d h %02d min", total / 3600, (total % 3600) / 60)
     }
 
     /// Ręczny wybór folderu lub podłączonego czytnika do slotu
@@ -115,22 +316,41 @@ public final class AppModel: ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.message = "Wybierz folder lub podłączoną kartę pamięci"
-        if panel.runModal() == .OK, let url = panel.url {
-            let name = url.lastPathComponent
-            let total = (try? url.resourceValues(forKeys: [.volumeTotalCapacityKey]).volumeTotalCapacity) ?? 64_000_000_000
-            let avail = (try? url.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity) ?? 32_000_000_000
-            let defaultLabel = cardConfigs.count < defaultLabels.count ? defaultLabels[cardConfigs.count] : "Kamera \(cardConfigs.count + 1)"
-            let config = CardIngestConfig(
-                volumeURL: url,
-                volumeName: name,
-                totalCapacity: total,
-                availableCapacity: avail,
-                cameraLabel: defaultLabel,
-                isEnabled: true
-            )
-            cardConfigs.append(config)
-            scanCard(url: url)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        if cardConfigs.contains(where: { $0.volumeURL.standardizedFileURL == url.standardizedFileURL }) {
+            setStatus("Ten folder jest już na liście źródeł.", isError: false)
+            return
         }
+        guard cardConfigs.count < Self.maxCards else {
+            setStatus("Można zgrywać jednocześnie maksymalnie \(Self.maxCards) źródła.", isError: true)
+            return
+        }
+
+        let values = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
+        let config = CardIngestConfig(
+            volumeURL: url,
+            volumeName: url.lastPathComponent,
+            totalCapacity: values?.volumeTotalCapacity,
+            availableCapacity: values?.volumeAvailableCapacity,
+            cameraLabel: defaultLabel(for: cardConfigs.count),
+            isEnabled: true,
+            isManual: true
+        )
+        cardConfigs.append(config)
+        scanCard(url: url)
+    }
+
+    private func defaultLabel(for index: Int) -> String {
+        index < defaultLabels.count ? defaultLabels[index] : "Kamera \(index + 1)"
+    }
+
+    /// Modyfikuje konfigurację karty o podanym `id`. Jeśli karty nie ma już na liście
+    /// (np. została wysunięta), nic nie robi. Wywoływać wyłącznie na wątku głównym —
+    /// karty identyfikujemy po `id`, nigdy po indeksie, bo lista może się zmienić w każdej chwili.
+    private func updateCard(id: String, _ change: (inout CardIngestConfig) -> Void) {
+        guard let index = cardConfigs.firstIndex(where: { $0.id == id }) else { return }
+        change(&cardConfigs[index])
     }
 
     // MARK: – Obsługa wykrywania kart
@@ -139,61 +359,83 @@ public final class AppModel: ObservableObject {
         let currentIDs = Set(volumes.map(\.id))
         let newIDs = currentIDs.subtracting(knownVolumeIDs)
         knownVolumeIDs = currentIDs
+        // Dysk docelowy mógł zostać podłączony lub odłączony.
+        refreshDestinationInfo()
+        let isInitialLoad = !hasHandledInitialVolumes
+        hasHandledInitialVolumes = true
 
-        // Ograniczenie do maksymalnie 4 kart
-        let limitedVolumes = Array(volumes.prefix(4))
-
-        // Zachowaj istniejące konfiguracje dla wciąż podłączonych kart
+        // Zachowaj istniejące konfiguracje dla wciąż podłączonych kart (maksymalnie 4 źródła)
         var newConfigs: [CardIngestConfig] = []
 
-        for (index, volume) in limitedVolumes.enumerated() {
-            if let existing = cardConfigs.first(where: { $0.volumeURL == volume.url }) {
+        for volume in volumes.prefix(Self.maxCards) {
+            if let existing = cardConfigs.first(where: { $0.volumeURL == volume.url && !$0.isManual }) {
                 newConfigs.append(existing)
             } else {
-                let defaultLabel = index < defaultLabels.count ? defaultLabels[index] : "Kamera \(index + 1)"
                 let config = CardIngestConfig(
                     volumeURL: volume.url,
                     volumeName: volume.name,
                     totalCapacity: volume.totalCapacity,
                     availableCapacity: volume.availableCapacity,
-                    cameraLabel: defaultLabel,
+                    cameraLabel: defaultLabel(for: newConfigs.count),
                     isEnabled: true
                 )
                 newConfigs.append(config)
             }
         }
 
+        // Ręcznie dodane foldery zostają na liście, dopóki istnieją na dysku.
+        for manual in cardConfigs where manual.isManual {
+            guard newConfigs.count < Self.maxCards,
+                  !newConfigs.contains(where: { $0.volumeURL == manual.volumeURL }),
+                  FileManager.default.fileExists(atPath: manual.volumeURL.path) else { continue }
+            newConfigs.append(manual)
+        }
+
         self.cardConfigs = newConfigs
 
-        // Jeśli podłączono nową kartę -> powiadomienie, auto-skan i pop-up okna
-        if let newID = newIDs.first, let newVol = volumes.first(where: { $0.id == newID }) {
-            sendNotification(
-                title: "Wykryto kartę SD",
-                body: "Karta „\(newVol.name)” jest gotowa do zgrywania."
-            )
+        // Przeskanuj nowo podłączone karty oraz te, które nie mają jeszcze wyników
+        for config in cardConfigs where !config.isScanning
+            && (newIDs.contains(config.id) || config.scannedFiles.isEmpty) {
+            scanCard(url: config.volumeURL)
+        }
 
-            // Przeskanuj nowo podłączoną kartę
-            scanCard(url: newVol.url)
+        // Powiadomienie i pop-up okna tylko dla kart włożonych po uruchomieniu aplikacji
+        let insertedVolumes = volumes.filter { newIDs.contains($0.id) }
+        guard !isInitialLoad, !insertedVolumes.isEmpty else { return }
 
-            // Automatycznie otwórz i wysuń okno aplikacji na pierwszy plan (pop-up)
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: AppModel.showMainWindowNotification, object: nil)
-                NSApp.activate(ignoringOtherApps: true)
-                for window in NSApp.windows where window.canBecomeKey {
-                    window.makeKeyAndOrderFront(nil)
-                    window.orderFrontRegardless()
-                }
-            }
+        let names = insertedVolumes.map { "„\($0.name)”" }.joined(separator: ", ")
+        sendNotification(
+            title: insertedVolumes.count == 1 ? "Wykryto kartę SD" : "Wykryto karty SD",
+            body: insertedVolumes.count == 1
+                ? "Karta \(names) jest gotowa do zgrywania."
+                : "Karty \(names) są gotowe do zgrywania."
+        )
+
+        // Automatycznie wysuń panel z paska menu
+        DispatchQueue.main.async {
+            self.showPanelAction?()
+        }
+    }
+
+    /// Pokazuje okno ustawień na wybranej zakładce — również wtedy, gdy zostało zamknięte.
+    public func showSettingsWindow(tab: SettingsTab = .settings) {
+        refreshDestinationInfo()
+        history = IngestHistory.load()
+        selectedTab = tab
+        NSApp.activate(ignoringOtherApps: true)
+        if let openSettingsWindow = openSettingsWindowAction {
+            openSettingsWindow()
         } else {
-            // Przeskanuj wszystkie karty, które nie mają jeszcze wyników
-            for config in cardConfigs where config.scannedFiles.isEmpty && !config.isScanning {
-                scanCard(url: config.volumeURL)
+            // Bez panelu z paska menu (który nie może stać się oknem głównym).
+            for window in NSApp.windows where window.canBecomeMain {
+                window.makeKeyAndOrderFront(nil)
             }
         }
     }
 
     /// Wysyła powiadomienie systemowe macOS.
     private func sendNotification(title: String, body: String) {
+        guard Self.notificationsAvailable else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -212,16 +454,22 @@ public final class AppModel: ObservableObject {
     public func scanCard(url: URL) {
         guard let index = cardConfigs.firstIndex(where: { $0.volumeURL == url }) else { return }
         cardConfigs[index].isScanning = true
+        let cardID = cardConfigs[index].id
+        let extensions = settings.enabledExtensions
+        let token = UUID()
+        scanTokens[cardID] = token
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            let scanner = MediaScanner(enabledExtensions: self.settings.enabledExtensions)
+            let scanner = MediaScanner(enabledExtensions: extensions)
             let results = (try? scanner.scan(volumeRoot: url)) ?? []
 
             DispatchQueue.main.async {
-                if let idx = self.cardConfigs.firstIndex(where: { $0.volumeURL == url }) {
-                    self.cardConfigs[idx].isScanning = false
-                    self.cardConfigs[idx].setScanResults(results)
+                // W międzyczasie zlecono nowsze skanowanie tej karty — ten wynik jest nieaktualny.
+                guard let self, self.scanTokens[cardID] == token else { return }
+                self.scanTokens[cardID] = nil
+                self.updateCard(id: cardID) { card in
+                    card.isScanning = false
+                    card.setScanResults(results)
                 }
             }
         }
@@ -236,24 +484,21 @@ public final class AppModel: ObservableObject {
     // MARK: – Zarządzanie wolumenami (Wysuwanie i Zmiana nazwy)
 
     public func ejectCard(url: URL) {
+        guard !isGlobalCopying else {
+            setStatus("Nie można wysunąć karty w trakcie zgrywania.", isError: true)
+            return
+        }
+        // Ręcznie dodany folder nie jest nośnikiem — „wysunięcie” usuwa go tylko z listy.
+        if cardConfigs.contains(where: { $0.volumeURL == url && $0.isManual }) {
+            cardConfigs.removeAll { $0.volumeURL == url }
+            return
+        }
         do {
             try VolumeManager.eject(url: url)
             volumeMonitor.refresh()
             setStatus("Karta została bezpiecznie wysunięta.", isError: false)
         } catch {
             setStatus("Błąd wysuwania karty: \(error.localizedDescription)", isError: true)
-        }
-    }
-
-    public func renameCard(url: URL, newName: String) {
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            try VolumeManager.renameVolume(at: url, to: trimmed)
-            volumeMonitor.refresh()
-            setStatus("Zmieniono nazwę karty na „\(trimmed)”.", isError: false)
-        } catch {
-            setStatus("Błąd zmiany nazwy karty: \(error.localizedDescription)", isError: true)
         }
     }
 
@@ -278,108 +523,350 @@ public final class AppModel: ObservableObject {
             return
         }
 
+        let destination = URL(fileURLWithPath: settings.destinationRoot, isDirectory: true)
+        let backupRoot = settings.backupDestinationRoot
+        let backupDestination = backupRoot.isEmpty ? nil : URL(fileURLWithPath: backupRoot, isDirectory: true)
+        let filesToCopy = cardsToIngest.flatMap(\.filteredFiles)
+        let selectedBytes = filesToCopy.reduce(Int64(0)) { $0 + $1.size }
+
+        if let problem = preflightProblem(destination: destination, files: filesToCopy, label: "Dysk docelowy") {
+            setStatus(problem, isError: true)
+            return
+        }
+        if let backupDestination {
+            guard backupDestination.standardizedFileURL != destination.standardizedFileURL else {
+                setStatus("Kopia zapasowa musi trafiać na inny dysk lub folder niż dysk docelowy.", isError: true)
+                return
+            }
+            if let problem = preflightProblem(destination: backupDestination, files: filesToCopy, label: "Dysk kopii zapasowej") {
+                setStatus(problem, isError: true)
+                return
+            }
+        }
+        guard confirmFreeSpace(destination: destination, requiredBytes: selectedBytes, label: "dysku docelowym") else {
+            return
+        }
+        if let backupDestination {
+            guard confirmFreeSpace(destination: backupDestination, requiredBytes: selectedBytes, label: "dysku kopii zapasowej") else {
+                return
+            }
+        }
+
+        // Z kopią zapasową każdy plik zapisujemy dwa razy — postęp obejmuje oba zapisy.
+        let destinationCount: Int64 = backupDestination == nil ? 1 : 2
+        let totalBytesAllCards = selectedBytes * destinationCount
+        let cancellation = CancellationToken()
+        let settings = self.settings
+        let projectDate = self.projectDate ?? Date()
+
         isGlobalCopying = true
         overallProgress = 0
+        transfer = TransferStatus(processedBytes: 0, totalBytes: totalBytesAllCards)
+        activeCancellation = cancellation
+        lastSession = nil
         statusMessage = ""
         statusIsError = false
 
-        let totalFilesAllCards = cardsToIngest.reduce(0) { $0 + $1.filteredFiles.count }
-        var completedFilesAllCards = 0
-
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+            let startedAt = Date()
             do {
-                let builder = ProjectBuilder(settings: self.settings)
-                let layout = try builder.build(projectName: name)
+                let builder = ProjectBuilder(settings: settings)
+                let layout = try builder.build(projectName: name, date: projectDate)
 
-                var totalCopiedOverall = 0
-                var totalSkippedOverall = 0
-                var totalFailedOverall = 0
-                var totalBytesOverall: Int64 = 0
+                // Ta sama struktura projektu (z manifestem i .drp) w miejscu kopii zapasowej.
+                var backupLayout: ProjectLayout?
+                if !backupRoot.isEmpty {
+                    var backupSettings = settings
+                    backupSettings.destinationRoot = backupRoot
+                    backupLayout = try ProjectBuilder(settings: backupSettings).build(projectName: name, date: projectDate)
+                }
+
+                var results: [IngestSessionSummary.CardResult] = []
+                var processedBefore: Int64 = 0
+                var transferredBefore: Int64 = 0
+                var meter = TransferRateMeter()
+                var lastUIUpdate: TimeInterval = 0
 
                 for card in cardsToIngest {
-                    guard let cardIdx = self.cardConfigs.firstIndex(where: { $0.volumeURL == card.volumeURL }) else { continue }
+                    if cancellation.isCancelled { break }
 
                     DispatchQueue.main.async {
-                        self.cardConfigs[cardIdx].isCopying = true
-                        self.cardConfigs[cardIdx].progress = 0
-                        self.cardConfigs[cardIdx].currentFile = ""
+                        self.updateCard(id: card.id) {
+                            $0.isCopying = true
+                            $0.progress = 0
+                            $0.currentFile = ""
+                            $0.lastReport = nil
+                        }
                     }
 
-                    let service = CopyService(verifyChecksums: self.settings.verifyChecksums)
-                    service.onProgress = { [weak self] fraction, fileURL in
+                    let service = CopyService(
+                        verifyChecksums: settings.verifyChecksums,
+                        verifyCopies: settings.verifyCopies,
+                        copySidecars: settings.copySidecarFiles,
+                        cancellation: cancellation
+                    )
+                    service.onProgress = { [weak self] progress in
+                        let now = ProcessInfo.processInfo.systemUptime
+                        meter.add(totalBytes: transferredBefore + progress.transferredBytes, at: now)
+                        // Odświeżanie interfejsu najwyżej 5 razy na sekundę.
+                        guard now - lastUIUpdate >= 0.2 || progress.filesDone == progress.totalFiles else { return }
+                        lastUIUpdate = now
+
+                        let processed = processedBefore + progress.processedBytes
+                        let status = TransferStatus(
+                            processedBytes: processed,
+                            totalBytes: totalBytesAllCards,
+                            bytesPerSecond: meter.bytesPerSecond,
+                            secondsRemaining: meter.secondsRemaining(forRemainingBytes: totalBytesAllCards - processed)
+                        )
+                        let cardFraction = progress.fraction
+                        let fileName = progress.currentFile.lastPathComponent
                         DispatchQueue.main.async {
-                            guard let self, let idx = self.cardConfigs.firstIndex(where: { $0.volumeURL == card.volumeURL }) else { return }
-                            self.cardConfigs[idx].progress = fraction
-                            self.cardConfigs[idx].currentFile = fileURL.lastPathComponent
+                            guard let self else { return }
+                            self.updateCard(id: card.id) {
+                                $0.progress = cardFraction
+                                $0.currentFile = fileName
+                            }
+                            self.overallProgress = status.fraction
+                            var updated = status
+                            updated.isCancelling = self.transfer?.isCancelling ?? false
+                            self.transfer = updated
                         }
                     }
 
                     let report = try service.copy(
                         files: card.filteredFiles,
                         to: layout,
-                        cameraLabel: card.cameraLabel
+                        cameraLabel: card.cameraLabel,
+                        backupLayout: backupLayout
                     )
 
-                    totalCopiedOverall += report.totalCopied
-                    totalSkippedOverall += report.totalSkipped
-                    totalFailedOverall += report.totalFailed
-                    totalBytesOverall += report.totalBytesCopied
-                    completedFilesAllCards += card.filteredFiles.count
-
-                    let overallFraction = totalFilesAllCards > 0 ? Double(completedFilesAllCards) / Double(totalFilesAllCards) : 1.0
+                    processedBefore += card.totalSelectedBytes * destinationCount
+                    transferredBefore += report.totalBytesCopied
+                        + report.backupCopied.reduce(Int64(0)) { total, url in
+                            total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
+                        }
+                    results.append(IngestSessionSummary.CardResult(
+                        id: card.id,
+                        title: card.cameraLabel.isEmpty ? card.volumeName : "\(card.cameraLabel) (\(card.volumeName))",
+                        isManual: card.isManual,
+                        report: report
+                    ))
 
                     DispatchQueue.main.async {
-                        if let idx = self.cardConfigs.firstIndex(where: { $0.volumeURL == card.volumeURL }) {
-                            self.cardConfigs[idx].isCopying = false
-                            self.cardConfigs[idx].progress = 1.0
-                            self.cardConfigs[idx].lastReport = report
+                        self.updateCard(id: card.id) {
+                            $0.isCopying = false
+                            $0.progress = report.wasCancelled ? $0.progress : 1.0
+                            $0.lastReport = report
                         }
-                        self.overallProgress = overallFraction
                     }
+
+                    if report.wasCancelled { break }
                 }
 
-                // Zapisz wpis w historii dla sesji zgrywania
-                let sourceSummary = cardsToIngest.map { "\($0.cameraLabel.isEmpty ? $0.volumeName : $0.cameraLabel) (\($0.volumeName))" }.joined(separator: ", ")
-                let record = IngestRecord(
+                let session = IngestSessionSummary(
                     projectName: name,
-                    sourceVolumeName: sourceSummary,
-                    destinationPath: layout.root.path,
-                    filesCopied: totalCopiedOverall,
-                    filesSkipped: totalSkippedOverall,
-                    filesFailed: totalFailedOverall,
-                    totalBytes: totalBytesOverall
+                    destination: layout.root,
+                    cards: results,
+                    duration: Date().timeIntervalSince(startedAt),
+                    wasCancelled: cancellation.isCancelled,
+                    verificationEnabled: settings.verifyCopies,
+                    backupDestination: backupLayout?.root
                 )
-                IngestHistory.append(record)
-
-                // Uruchom aplikacje docelowe (Resolve / Lightroom)
-                if self.settings.openInDaVinciResolve {
-                    self.launchDaVinciResolve(layout: layout)
-                }
-                if self.settings.openInLightroom {
-                    self.launchLightroom(layout: layout)
-                }
-
-                DispatchQueue.main.async {
-                    self.isGlobalCopying = false
-                    self.overallProgress = 1.0
-                    self.history = IngestHistory.load()
-                    self.setStatus(
-                        "Zgrano \(totalCopiedOverall) plików (\(AppModel.formatBytes(totalBytesOverall))) z \(cardsToIngest.count) kart.",
-                        isError: totalFailedOverall > 0
-                    )
-                    self.sendNotification(
-                        title: "Zgrywanie zakończone pomyślnie",
-                        body: "Projekt „\(name)”: zgrano \(totalCopiedOverall) plików z \(cardsToIngest.count) kart."
-                    )
-                }
+                self.finishBatch(session, settings: settings, layout: layout, backupLayout: backupLayout)
             } catch {
                 DispatchQueue.main.async {
                     self.isGlobalCopying = false
+                    self.transfer = nil
+                    self.activeCancellation = nil
                     self.setStatus("Błąd zgrywania: \(error.localizedDescription)", isError: true)
                 }
             }
         }
+    }
+
+    /// Kończy sesję: historia, aplikacje docelowe, komunikat, powiadomienie i arkusz podsumowania.
+    /// Wywoływane z wątku zgrywania.
+    private func finishBatch(
+        _ session: IngestSessionSummary,
+        settings: Settings,
+        layout: ProjectLayout,
+        backupLayout: ProjectLayout?
+    ) {
+        let failedCount = session.failures.count
+        let record = IngestRecord(
+            projectName: session.projectName,
+            sourceVolumeName: session.cards.map(\.title).joined(separator: ", "),
+            destinationPath: layout.root.path,
+            filesCopied: session.totalCopied,
+            filesSkipped: session.totalSkipped,
+            filesFailed: failedCount,
+            totalBytes: session.totalBytes
+        )
+        IngestHistory.append(record)
+
+        // Raport zgrania z sumami kontrolnymi — w projekcie i w kopii zapasowej.
+        var reportProblem: String?
+        if settings.writeIngestReport {
+            let sections = session.cards.map { IngestReportWriter.Section(title: $0.title, report: $0.report) }
+            for root in [layout.root] + (backupLayout.map { [$0.root] } ?? []) {
+                do {
+                    try IngestReportWriter.write(
+                        projectRoot: root,
+                        projectName: session.projectName,
+                        sections: sections,
+                        wasCancelled: session.wasCancelled
+                    )
+                } catch {
+                    reportProblem = "Nie udało się zapisać raportu zgrania: \(error.localizedDescription)"
+                }
+            }
+        }
+
+        // Zapamiętaj zmierzoną prędkość do szacowania czasu następnych zgrań.
+        if let speed = session.averageBytesPerSecond, session.duration >= 3 {
+            UserDefaults.standard.set(speed, forKey: Self.lastTransferSpeedKey)
+        }
+
+        // Uruchom aplikacje docelowe (Resolve / Lightroom) — nie po anulowaniu
+        if !session.wasCancelled {
+            if settings.openInDaVinciResolve {
+                launchDaVinciResolve(layout: layout)
+            }
+            if settings.openInLightroom {
+                launchLightroom(layout: layout)
+            }
+        }
+
+        var message = "Zgrano \(PolishPlural.files(session.totalCopied)) (\(AppModel.formatBytes(session.totalBytes))) "
+            + "z \(PolishPlural.format(session.cards.count, one: "karty", few: "kart", many: "kart"))."
+        if session.wasCancelled {
+            message = "Zgrywanie anulowane. " + message
+        }
+        if session.verificationEnabled && session.totalCopied > 0 {
+            message += " Zweryfikowano: \(session.totalVerified)."
+        }
+        if session.totalSkipped > 0 {
+            message += " Pominięto duplikaty: \(session.totalSkipped)."
+        }
+        if session.backupDestination != nil && session.totalBackupCopied > 0 {
+            message += " Kopia zapasowa: \(session.totalBackupCopied)."
+        }
+        if let firstFailure = session.failures.first {
+            message += " Błędy: \(failedCount) — m.in. \(firstFailure.url.lastPathComponent): \(firstFailure.error)"
+        }
+        if let reportProblem {
+            message += " \(reportProblem)"
+        }
+        // Automatyczne wysunięcie kart — tylko po pełnym zgraniu bez błędów.
+        let ejectsCards = settings.ejectCardsAfterIngest && session.isSafeToEject
+        if ejectsCards {
+            message += " Karty zostały wysunięte."
+        }
+
+        DispatchQueue.main.async {
+            self.isGlobalCopying = false
+            self.overallProgress = session.wasCancelled ? self.overallProgress : 1.0
+            self.transfer = nil
+            self.activeCancellation = nil
+            self.history = IngestHistory.load()
+            self.setStatus(message, isError: failedCount > 0 || session.wasCancelled)
+            self.lastSession = session
+            self.refreshDestinationInfo()
+            if ejectsCards {
+                self.ejectCards(of: session)
+                // Komunikaty pojedynczych wysunięć nie zastępują podsumowania zgrania.
+                self.setStatus(message, isError: false)
+            }
+
+            if session.wasCancelled {
+                self.sendNotification(
+                    title: "Zgrywanie anulowane",
+                    body: "Projekt „\(session.projectName)”: zgrano \(PolishPlural.files(session.totalCopied)) przed przerwaniem."
+                )
+            } else if failedCount > 0 {
+                self.sendNotification(
+                    title: "Zgrywanie zakończone z błędami",
+                    body: "Projekt „\(session.projectName)”: nie zgrano \(PolishPlural.files(failedCount)). Nie formatuj kart przed sprawdzeniem."
+                )
+            } else {
+                self.sendNotification(
+                    title: "Zgrywanie zakończone pomyślnie",
+                    body: "Projekt „\(session.projectName)”: zgrano \(PolishPlural.files(session.totalCopied)) "
+                        + "z \(PolishPlural.format(session.cards.count, one: "karty", few: "kart", many: "kart"))."
+                )
+            }
+        }
+    }
+
+    /// Przerywa trwające zgrywanie. Bieżący plik jest porzucany (bez śladu w projekcie),
+    /// pliki już skopiowane zostają.
+    public func cancelCopy() {
+        guard isGlobalCopying, let cancellation = activeCancellation else { return }
+        cancellation.cancel()
+        transfer?.isCancelling = true
+        setStatus("Anulowanie… przerywam bieżący plik.", isError: false)
+    }
+
+    /// Wysuwa karty z zakończonej sesji (ręcznie dodane foldery są pomijane).
+    public func ejectCards(of session: IngestSessionSummary) {
+        for card in session.cards where !card.isManual {
+            guard let config = cardConfigs.first(where: { $0.id == card.id }) else { continue }
+            ejectCard(url: config.volumeURL)
+        }
+    }
+
+    /// Pokazuje folder projektu w Finderze.
+    public func revealInFinder(_ session: IngestSessionSummary) {
+        NSWorkspace.shared.activateFileViewerSelecting([session.destination])
+    }
+
+    // MARK: – Sprawdzenie dysku docelowego przed zgrywaniem
+
+    /// Zwraca opis problemu, przez który zgrywanie nie może się udać, albo `nil`.
+    private func preflightProblem(destination: URL, files: [MediaFile], label: String) -> String? {
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: destination.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return "\(label) „\(destination.path)” jest niedostępny. Sprawdź, czy jest podłączony."
+        }
+        guard fm.isWritableFile(atPath: destination.path) else {
+            return "\(label): brak uprawnień do zapisu w „\(destination.path)”."
+        }
+        // FAT32 przyjmuje pliki do 4 GB — dłuższy klip i tak by się nie skopiował.
+        if let maxFileSize = (try? destination.resourceValues(forKeys: [.volumeMaximumFileSizeKey]))?.volumeMaximumFileSize,
+           let tooLarge = files.first(where: { $0.size > Int64(maxFileSize) }) {
+            return "\(label) nie przyjmie pliku \(tooLarge.url.lastPathComponent) (\(AppModel.formatBytes(tooLarge.size))) — "
+                + "limit systemu plików to \(AppModel.formatBytes(Int64(maxFileSize))). Użyj dysku sformatowanego jako APFS lub exFAT."
+        }
+        return nil
+    }
+
+    /// Gdy wybrane materiały mogą się nie zmieścić, pyta użytkownika, czy mimo to zgrywać.
+    /// Nie blokuje twardo, bo pliki zgrane już wcześniej do projektu zostaną pominięte.
+    private func confirmFreeSpace(destination: URL, requiredBytes: Int64, label: String) -> Bool {
+        let values = try? destination.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey
+        ])
+        guard values?.volumeAvailableCapacityForImportantUsage != nil || values?.volumeAvailableCapacity != nil else {
+            return true
+        }
+        let available = max(
+            values?.volumeAvailableCapacityForImportantUsage ?? 0,
+            Int64(values?.volumeAvailableCapacity ?? 0)
+        )
+        guard available < requiredBytes else { return true }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Na \(label) może zabraknąć miejsca"
+        alert.informativeText = "Wybrane materiały zajmują \(AppModel.formatBytes(requiredBytes)), "
+            + "a wolne jest \(AppModel.formatBytes(available)). Pliki zgrane już wcześniej do tego projektu "
+            + "zostaną pominięte, więc faktycznie może być potrzebne mniej miejsca."
+        alert.addButton(withTitle: "Anuluj")
+        alert.addButton(withTitle: "Zgraj mimo to")
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     // MARK: – Otwieranie DaVinci Resolve i Lightroom

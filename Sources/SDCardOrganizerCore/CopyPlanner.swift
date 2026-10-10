@@ -12,11 +12,12 @@ public enum CopyDecision: Equatable {
 
 /// Planuje zgrywanie plików z karty: decyduje o duplikatach i kolizjach nazw.
 public struct CopyPlanner {
-    /// Porównuje plik źródłowy z plikiem docelowym i zwraca decyzję.
+    /// Porównuje plik źródłowy z plikami w katalogu docelowym i zwraca decyzję.
     ///
-    /// - Jeżeli plik docelowy nie istnieje -> `.copyAsIs`.
-    /// - Jeżeli plik docelowy istnieje i ma identyczny rozmiar (oraz opcjonalnie checksum)
+    /// - Jeżeli w katalogu jest już kopia tego pliku — pod oryginalną nazwą albo pod nazwą
+    ///   z sufiksem (`nazwa_1.ext`, `nazwa_2.ext`…) nadaną przy wcześniejszej kolizji —
     ///   -> `.skipDuplicate`.
+    /// - Jeżeli plik o oryginalnej nazwie nie istnieje -> `.copyAsIs`.
     /// - W przeciwnym razie (taka sama nazwa, inna zawartość) -> `.copy` pod unikalną nazwą.
     public static func decision(
         source: URL,
@@ -27,19 +28,43 @@ public struct CopyPlanner {
         let directDestination = destinationDirectory.appendingPathComponent(source.lastPathComponent)
         let fm = FileManager.default
 
-        guard fm.fileExists(atPath: directDestination.path) else {
-            return .copyAsIs(directDestination)
+        func exists(_ name: String) -> Bool {
+            existingNames.contains(name)
+                || fm.fileExists(atPath: destinationDirectory.appendingPathComponent(name).path)
         }
 
-        if isSameContent(source: source, destination: directDestination, verifyChecksums: verifyChecksums) {
+        let directExists = exists(source.lastPathComponent)
+        if directExists,
+           isSameContent(source: source, destination: directDestination, verifyChecksums: verifyChecksums) {
             return .skipDuplicate
+        }
+
+        // Kopie z sufiksem są nadawane kolejno (UniqueNamer), więc sprawdzamy je do pierwszej luki.
+        var index = 1
+        while true {
+            let name = UniqueNamer.suffixedName(for: source, index: index)
+            guard exists(name) else { break }
+            let candidate = destinationDirectory.appendingPathComponent(name)
+            if isSameContent(source: source, destination: candidate, verifyChecksums: verifyChecksums) {
+                return .skipDuplicate
+            }
+            index += 1
+        }
+
+        guard directExists else {
+            return .copyAsIs(directDestination)
         }
 
         let unique = UniqueNamer.uniqueURL(for: source, in: destinationDirectory, existingNames: existingNames)
         return .copy(unique)
     }
 
-    /// Porównuje dwa pliki: najpierw rozmiar, opcjonalnie checksum SHA-256.
+    /// Porównuje dwa pliki.
+    ///
+    /// Z włączonymi sumami kontrolnymi rozstrzyga SHA-256. Bez nich sam rozmiar nie wystarcza
+    /// (przy kodekach o stałym bitrate — BRAW, ProRes, WAV — różne ujęcia tej samej długości
+    /// mają identyczny rozmiar), więc porównywana jest też data modyfikacji, którą kopiowanie
+    /// zachowuje. Tolerancja 2 s wynika z dokładności dat w systemie plików FAT32.
     static func isSameContent(source: URL, destination: URL, verifyChecksums: Bool) -> Bool {
         let fm = FileManager.default
         let sAttrs = try? fm.attributesOfItem(atPath: source.path)
@@ -58,7 +83,12 @@ public struct CopyPlanner {
             }
             return sHash == dHash
         }
-        return true
+
+        guard let sDate = sAttrs?[.modificationDate] as? Date,
+              let dDate = dAttrs?[.modificationDate] as? Date else {
+            return false
+        }
+        return abs(sDate.timeIntervalSince(dDate)) <= 2
     }
 
     /// Oblicza checksum SHA-256 pliku (strumieniowo, bez ładowania całości do pamięci).

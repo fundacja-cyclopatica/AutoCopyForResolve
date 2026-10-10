@@ -52,6 +52,23 @@ public struct ProjectLayout {
         return "\(df.string(from: date))_\(projectName)"
     }
 
+    /// Odczytuje datę i nazwę z nazwy folderu projektu (`YYYY-MM-DD_Nazwa`).
+    /// Zwraca `nil` dla folderów, które nie są projektami tej aplikacji.
+    public static func parseFolderName(_ folderName: String) -> (date: Date, name: String)? {
+        guard folderName.count > 11 else { return nil }
+        let separator = folderName.index(folderName.startIndex, offsetBy: 10)
+        guard folderName[separator] == "_" else { return nil }
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        guard let date = df.date(from: String(folderName[..<separator])) else { return nil }
+
+        let name = String(folderName[folderName.index(after: separator)...])
+        guard !name.isEmpty else { return nil }
+        return (date, name)
+    }
+
     /// Tworzy wszystkie katalogi projektu na dysku.
     public func createDirectories() throws {
         let fm = FileManager.default

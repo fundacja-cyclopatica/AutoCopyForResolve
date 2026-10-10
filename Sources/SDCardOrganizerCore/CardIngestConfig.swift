@@ -14,13 +14,17 @@ public struct CardIngestConfig: Identifiable, Equatable {
     /// Czy karta jest zaznaczona do zgrania
     public var isEnabled: Bool
 
+    /// Źródło dodane ręcznie (folder wybrany przez użytkownika), a nie wykryty nośnik wymienny.
+    /// Takiego źródła nie da się wysunąć ani zmienić mu nazwy — można je tylko usunąć z listy.
+    public let isManual: Bool
+
     /// Zeskanowane pliki
     public var scannedFiles: [MediaFile]
 
     /// Dostępne dni nagrań
     public var availableDays: [DaySummary]
 
-    /// Wybrane dni nagrań (jeśli puste, a availableDays niepuste -> brak wyboru)
+    /// Wybrane dni nagrań. Pusty zbiór oznacza, że nic nie jest wybrane do zgrania.
     public var selectedDays: Set<String>
 
     /// Filtry typów mediów dla danej karty
@@ -43,6 +47,7 @@ public struct CardIngestConfig: Identifiable, Equatable {
         availableCapacity: Int? = nil,
         cameraLabel: String = "",
         isEnabled: Bool = true,
+        isManual: Bool = false,
         includeVideos: Bool = true,
         includePhotos: Bool = true,
         includeAudio: Bool = true
@@ -54,6 +59,7 @@ public struct CardIngestConfig: Identifiable, Equatable {
         self.availableCapacity = availableCapacity
         self.cameraLabel = cameraLabel
         self.isEnabled = isEnabled
+        self.isManual = isManual
         self.includeVideos = includeVideos
         self.includePhotos = includePhotos
         self.includeAudio = includeAudio
@@ -70,14 +76,8 @@ public struct CardIngestConfig: Identifiable, Equatable {
 
     /// Pliki pasujące do wybranych dni oraz zaznaczonych typów (filmy/zdjęcia/audio)
     public var filteredFiles: [MediaFile] {
-        let dayFiltered: [MediaFile]
-        if selectedDays.isEmpty {
-            dayFiltered = scannedFiles
-        } else {
-            dayFiltered = scannedFiles.filter { selectedDays.contains($0.dayString) }
-        }
-
-        return dayFiltered.filter { file in
+        scannedFiles.filter { file in
+            guard selectedDays.contains(file.dayString) else { return false }
             switch file.category {
             case .video: return includeVideos
             case .photo: return includePhotos
@@ -134,6 +134,28 @@ public struct CardIngestConfig: Identifiable, Equatable {
     public var photoPercent: Double {
         guard let total = totalCapacity, total > 0 else { return 0.05 }
         return max(0.01, min(0.9, Double(photoBytes) / Double(total)))
+    }
+
+    /// Czy wybrany jest dokładnie najnowszy dzień.
+    public var isLatestDayOnlySelected: Bool {
+        guard let latest = availableDays.first?.dayString else { return false }
+        return selectedDays == [latest]
+    }
+
+    /// Czy wybrane są wszystkie dni z karty.
+    public var areAllDaysSelected: Bool {
+        !availableDays.isEmpty && selectedDays.count == availableDays.count
+    }
+
+    /// Czy wybrane są dokładnie `count` najnowsze dni.
+    public func areLatestDaysSelected(_ count: Int) -> Bool {
+        guard availableDays.count >= count else { return false }
+        return selectedDays == Set(availableDays.prefix(count).map(\.dayString))
+    }
+
+    /// Szybki wybór kilku najnowszych dni (np. trzydniowe wesele lub plan zdjęciowy).
+    public mutating func selectLatestDays(_ count: Int) {
+        selectedDays = Set(availableDays.prefix(count).map(\.dayString))
     }
 
     /// Szybki wybór najnowszego dnia

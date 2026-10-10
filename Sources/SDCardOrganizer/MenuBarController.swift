@@ -4,18 +4,33 @@ import Combine
 import SDCardOrganizerCore
 
 /// Kontroler ikony w pasku menu systemowym (NSStatusItem).
-/// - Lewy przycisk myszy: natychmiastowe otwarcie okna głównego
-/// - Prawy przycisk myszy: menu podręczne (status kart, ustawienia, zakończenie)
+/// - Lewy przycisk myszy: wysuwa / chowa panel z kartami (jak widget)
+/// - Prawy przycisk myszy: menu podręczne (status kart, panel, ustawienia, historia, zakończenie)
 public final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem!
     private let model: AppModel
     private var cancellables = Set<AnyCancellable>()
+    private var panelController: StatusPanelController!
 
     public init(model: AppModel) {
         self.model = model
         super.init()
         setupStatusItem()
+        panelController = StatusPanelController(model: model) { [weak self] in
+            self?.statusItem.button?.window?.screen
+        }
+        panelController.onVisibilityChange = { [weak self] _ in
+            self?.updateButton()
+        }
+        model.showPanelAction = { [weak self] in
+            self?.panelController.show()
+        }
         observeModel()
+
+        // Po uruchomieniu od razu pokaż panel — to główny widok aplikacji.
+        DispatchQueue.main.async { [weak self] in
+            self?.panelController.show()
+        }
     }
 
     private func setupStatusItem() {
@@ -31,10 +46,11 @@ public final class MenuBarController: NSObject {
 
     private func observeModel() {
         // Obserwuj zmiany stanu kart i postępu zgrywania
-        Publishers.Merge3(
+        Publishers.Merge4(
             model.$cardConfigs.map { _ in () },
             model.$isGlobalCopying.map { _ in () },
-            model.$overallProgress.map { _ in () }
+            model.$overallProgress.map { _ in () },
+            model.$settings.map { _ in () }
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in
@@ -45,15 +61,27 @@ public final class MenuBarController: NSObject {
 
     private func updateButton() {
         guard let button = statusItem.button else { return }
+        button.highlight(panelController?.isVisible ?? false)
 
-        if model.isGlobalCopying {
-            button.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath.circle.fill", accessibilityDescription: "Zgrywanie")
-            button.title = " \(Int(model.overallProgress * 100))%"
-        } else {
-            let symbolName = model.cardConfigs.isEmpty ? "externaldrive" : "externaldrive.fill.badge.checkmark"
-            button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "SD Organizer")
-            button.title = ""
+        let settings = model.settings
+        let hasCards = !model.cardConfigs.isEmpty
+
+        var image: NSImage?
+        if settings.menuBarIconStyle == .custom, let path = settings.customMenuBarIconPath {
+            image = MenuBarIcon.customImage(at: path, isTemplate: settings.customMenuBarIconIsTemplate)
         }
+        if image == nil {
+            if model.isGlobalCopying {
+                image = MenuBarIcon.symbol("arrow.triangle.2.circlepath.circle.fill")
+            } else {
+                image = MenuBarIcon.symbol(hasCards ? "sdcard.fill" : "sdcard")
+            }
+        }
+        button.image = image
+        button.imagePosition = .imageLeading
+        button.title = model.isGlobalCopying ? " \(Int(model.overallProgress * 100))%" : ""
+        // Bez wymuszonego koloru ikona szablonowa jest biała na ciemnym pasku i czarna na jasnym.
+        button.contentTintColor = MenuBarIcon.tint(for: settings.menuBarIconStyle, hasCards: hasCards)
     }
 
     @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton) {
@@ -70,8 +98,8 @@ public final class MenuBarController: NSObject {
                 self.statusItem.menu = nil
             }
         } else {
-            // Lewy przycisk -> Natychmiastowe otwarcie okna głównego
-            openMainWindow()
+            // Lewy przycisk -> wysuń / schowaj panel
+            panelController.toggle()
         }
     }
 
@@ -102,7 +130,7 @@ public final class MenuBarController: NSObject {
 
             for config in model.cardConfigs {
                 let label = config.cameraLabel.isEmpty ? config.volumeName : "\(config.cameraLabel) (\(config.volumeName))"
-                let countText = config.isCopying ? "• zgrywanie…" : "• \(config.filteredFiles.count) plików"
+                let countText = config.isCopying ? "• zgrywanie…" : "• \(PolishPlural.files(config.filteredFiles.count))"
                 let cardItem = NSMenuItem(title: "  💾 \(label) \(countText)", action: nil, keyEquivalent: "")
                 cardItem.isEnabled = false
                 menu.addItem(cardItem)
@@ -111,13 +139,17 @@ public final class MenuBarController: NSObject {
 
         menu.addItem(NSMenuItem.separator())
 
-        let openMainItem = NSMenuItem(title: "Otwórz okno główne", action: #selector(openMainWindowAction), keyEquivalent: "o")
-        openMainItem.target = self
-        menu.addItem(openMainItem)
+        let showPanelItem = NSMenuItem(title: "Pokaż panel kart", action: #selector(showPanelAction), keyEquivalent: "")
+        showPanelItem.target = self
+        menu.addItem(showPanelItem)
 
         let openSettingsItem = NSMenuItem(title: "Ustawienia…", action: #selector(openSettingsAction), keyEquivalent: ",")
         openSettingsItem.target = self
         menu.addItem(openSettingsItem)
+
+        let openHistoryItem = NSMenuItem(title: "Historia zgrań…", action: #selector(openHistoryAction), keyEquivalent: "")
+        openHistoryItem.target = self
+        menu.addItem(openHistoryItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -128,29 +160,21 @@ public final class MenuBarController: NSObject {
         return menu
     }
 
-    @objc private func openMainWindowAction() {
-        openMainWindow()
+    @objc private func showPanelAction() {
+        panelController.show()
     }
 
     @objc private func openSettingsAction() {
-        if #available(macOS 14.0, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-        }
-        NSApp.activate(ignoringOtherApps: true)
+        panelController.hide()
+        model.showSettingsWindow(tab: .settings)
+    }
+
+    @objc private func openHistoryAction() {
+        panelController.hide()
+        model.showSettingsWindow(tab: .history)
     }
 
     @objc private func quitAppAction() {
         NSApplication.shared.terminate(nil)
-    }
-
-    private func openMainWindow() {
-        NotificationCenter.default.post(name: AppModel.showMainWindowNotification, object: nil)
-        NSApp.activate(ignoringOtherApps: true)
-        for window in NSApp.windows where window.canBecomeKey {
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-        }
     }
 }

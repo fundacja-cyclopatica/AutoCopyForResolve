@@ -8,14 +8,7 @@ public enum MediaCategory: String, CaseIterable, Codable {
 
     /// Rozszerzenia (bez kropki) przypisane do każdej kategorii.
     public static func extensions(for category: MediaCategory) -> Set<String> {
-        switch category {
-        case .video:
-            return ["mov", "mp4", "mxf", "braw", "r3d", "m4v", "avi", "mkv", "mpg", "mpeg", "mts", "m2ts", "crm", "lrf"]
-        case .audio:
-            return ["wav", "mp3", "aac", "aiff", "aif", "m4a", "flac"]
-        case .photo:
-            return ["jpg", "jpeg", "png", "tiff", "tif", "heic", "heif", "dng", "arw", "srf", "sr2", "cr2", "cr3", "crw", "nef", "nrw", "rw2", "orf", "ori", "raf", "pef", "gpr", "raw", "rwl", "3fr", "fff", "iiq"]
-        }
+        MediaFormats.extensions(for: category)
     }
 
     /// Kategoria dla danego pliku (na podstawie rozszerzenia).
@@ -107,6 +100,11 @@ public struct MediaScanner {
         self.filter = FileTypeFilter(enabledExtensions: enabledExtensions)
     }
 
+    /// Katalogi systemowe kamer z miniaturami i metadanymi, które nie są materiałem
+    /// (np. Sony `M4ROOT/THMBNL` z miniaturami JPG każdego klipu). Porównanie bez
+    /// rozróżniania wielkości liter.
+    public static let excludedDirectoryNames: Set<String> = ["THMBNL", "AVF_INFO", "CANONMSC"]
+
     /// Skanuje rekursywnie katalog źródłowy i zwraca pliki pasujące do filtra wraz z datami i rozmiarami.
     public func scan(volumeRoot: URL) throws -> [MediaFile] {
         let keys: [URLResourceKey] = [
@@ -129,6 +127,12 @@ public struct MediaScanner {
 
         var results: [MediaFile] = []
         for case let url as URL in enumerator {
+            if Self.excludedDirectoryNames.contains(url.lastPathComponent.uppercased()),
+               (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                enumerator.skipDescendants()
+                continue
+            }
+
             let ext = url.pathExtension.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             guard !ext.isEmpty else { continue }
             guard filter.isIncluded(url) else { continue }
