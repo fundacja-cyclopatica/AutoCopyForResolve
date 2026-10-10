@@ -370,6 +370,25 @@ struct SelfTest {
             return abs(rate - 100_000_000) < 1 && abs(eta - 2) < 0.001
         }
 
+        check("Polska odmiana liczebników") {
+            PolishPlural.files(1) == "1 plik" && PolishPlural.files(3) == "3 pliki"
+                && PolishPlural.files(5) == "5 plików" && PolishPlural.files(13) == "13 plików"
+                && PolishPlural.files(22) == "22 pliki" && PolishPlural.cards(2) == "2 karty"
+        }
+
+        check("Dogrywanie do istniejącego projektu z innego dnia") {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            try! FileManager.default.createDirectory(at: dir.appendingPathComponent("2026-10-08_Wesele"), withIntermediateDirectories: true)
+            try! FileManager.default.createDirectory(at: dir.appendingPathComponent("Inny folder"), withIntermediateDirectories: true)
+            let projects = ProjectCatalog.projects(in: dir.path)
+            guard projects.map(\.folderName) == ["2026-10-08_Wesele"], let project = projects.first else { return false }
+            var s = Settings()
+            s.destinationRoot = dir.path
+            let layout = try! ProjectBuilder(settings: s).build(projectName: project.name, date: project.date)
+            return layout.root.lastPathComponent == "2026-10-08_Wesele"
+        }
+
         print("")
         print("Wynik: \(passed) zdało, \(failed) nie zdało.")
         if failed > 0 { exit(1) }

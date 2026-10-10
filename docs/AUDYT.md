@@ -9,7 +9,7 @@ Stan na commit `542cde3` (2026-10-09). Przejrzany cały kod: `SDCardOrganizerCor
 > macOS/SwiftUI i warto je sprawdzić ręcznie.
 
 > **Status poprawek:** B1–B16 oraz błędy w obsłudze okien są naprawione; z propozycji UX
-> zrobione są punkty 1 (postęp, prędkość, ETA, Anuluj) i 2 (ekran podsumowania) (zob. historię gałęzi
+> zrobione są punkty 1–9, 12 i 13 (zob. historię gałęzi
 > `claude/intelligent-keller-legdgb`). Pozostałe punkty czekają na realizację.
 
 Priorytety: 🔴 krytyczne (utrata danych / crash / zablokowany główny scenariusz),
@@ -207,32 +207,32 @@ przełączniki filtrów, które w trakcie i tak nic nie zmieniają, a mylą.
 2. ✅ **Ekran podsumowania po zgraniu:** skopiowano / pominięto (duplikaty) / błędy z listą
    plików, wynik weryfikacji oraz przyciski „Pokaż w Finderze”, „Otwórz w Resolve” i
    „Wysuń karty”.
-3. **Nazwa projektu:** pole ma 100 pt szerokości. Proponuję szersze pole z listą ostatnich
+3. ✅ **Nazwa projektu:** pole ma 100 pt szerokości. Proponuję szersze pole z listą ostatnich
    projektów (z historii i z folderów na dysku docelowym), co upraszcza dogrywanie do
    istniejącego projektu, oraz podgląd ścieżki wynikowej
    (`/Volumes/SSD/2026-10-09_Nazwa/Video/Kamera A/`).
-4. **Wyraźny stan „nic nie wybrano”:** gdy przycisk „Zgraj” jest wyłączony, powiedz
+4. ✅ **Wyraźny stan „nic nie wybrano”:** gdy przycisk „Zgraj” jest wyłączony, powiedz
    dlaczego (brak nazwy projektu / dysku / plików), zamiast tylko go przyciemniać.
-5. **Przełącznik Audio** na karcie (obok Filmy/Zdjęcia) oraz audio w statystykach (B12).
-6. **Ostrzeżenie o miejscu:** pasek „Dysk docelowy” powinien pokazywać wolne miejsce i
+5. ✅ **Przełącznik Audio** na karcie (obok Filmy/Zdjęcia) oraz audio w statystykach (B12).
+6. ✅ **Ostrzeżenie o miejscu:** pasek „Dysk docelowy” powinien pokazywać wolne miejsce i
    świecić na czerwono, gdy wybrane materiały się nie mieszczą.
 
 ### Czytelność i spójność
-7. **Rozmiary fontów:** większość tekstów ma 9–11 pt, co przy ciemnym tle i szarym kolorze
+7. ✅ **Rozmiary fontów:** większość tekstów ma 9–11 pt, co przy ciemnym tle i szarym kolorze
    (`Color.gray.opacity(0.7)`) jest na granicy czytelności (kontrast poniżej WCAG AA).
    Minimum 11 pt dla treści, 10 pt dla etykiet pomocniczych.
-8. **Dekoracyjny żargon** mówi mniej niż mógłby: „STUDIO 2.4” (fikcyjna wersja),
+8. ✅ **Dekoracyjny żargon** mówi mniej niż mógłby: „STUDIO 2.4” (fikcyjna wersja),
    „KONTROLER I/O: GOTOWY”, „CAM_SLOT_01”. Proponuję zastąpić je realną informacją:
    wersją z `Info.plist`, liczbą kart, wolnym miejscem na dysku docelowym.
-9. **Polska odmiana liczebników:** „1 plików”, „2 kart(y)”, „1 skopiowanych”. Warto mieć
+9. ✅ **Polska odmiana liczebników:** „1 plików”, „2 kart(y)”, „1 skopiowanych”. Warto mieć
    helper `plural(n, "plik", "pliki", "plików")` albo `.stringsdict`.
 10. **Panel ustawień:** przycisk zamknięcia udaje czerwony „semafor” okna macOS, co myli
     użytkownika. Lepiej dać zwykły „×” albo „Gotowe”, zamykanie klawiszem **Esc** i
     przyciemnienie tła pod panelem.
 11. **Tryb jasny / dostępność:** motyw jest na sztywno ciemny. Warto choć respektować
     „Zwiększ kontrast” i „Ogranicz ruch” (spring-animacje i poświaty).
-12. **Skróty klawiszowe:** ⌘R (skanuj), ⌘↩ (zgraj), ⌘, (ustawienia), ⌘E (wysuń wszystkie).
-13. **Historia:** „Pokaż w Finderze” przy wpisie, liczba pominiętych i błędów, potwierdzenie
+12. ✅ **Skróty klawiszowe:** ⌘R (skanuj), ⌘↩ (zgraj), ⌘, (ustawienia), ⌘E (wysuń wszystkie).
+13. ✅ **Historia:** „Pokaż w Finderze” przy wpisie, liczba pominiętych i błędów, potwierdzenie
     przed „Wyczyść historię” (teraz kasuje bez pytania).
 14. **Lista dni:** przy wielu dniach dodaj zakres („ostatnie 3 dni”) i podgląd miniatur.
     Kolumna jest wąska, więc lista na 110 pt przy 10+ dniach jest mało wygodna.

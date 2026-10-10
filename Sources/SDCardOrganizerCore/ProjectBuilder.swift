@@ -14,8 +14,11 @@ public struct ProjectBuilder {
     /// tego samego dnia): istniejące katalogi i plik `.drp` zostają nietknięte, a manifest
     /// zachowuje pierwotną datę utworzenia.
     @discardableResult
-    public func build(projectName: String) throws -> ProjectLayout {
-        let layout = ProjectLayout(destinationRoot: settings.destinationRoot, projectName: projectName)
+    ///
+    /// `date` decyduje o prefiksie folderu — przy dogrywaniu do projektu z wcześniejszego
+    /// dnia podaj datę tamtego projektu, inaczej powstanie nowy folder z dzisiejszą datą.
+    public func build(projectName: String, date: Date = Date()) throws -> ProjectLayout {
+        let layout = ProjectLayout(destinationRoot: settings.destinationRoot, projectName: projectName, date: date)
         try layout.createDirectories()
         try writeManifest(to: layout)
         try writeDRPProject(to: layout)

@@ -209,7 +209,7 @@ struct CardColumnView: View {
                 Text("Wolne \(config.freePercent)%")
                     .foregroundStyle(Color.gray.opacity(0.8))
             }
-            .font(.system(size: 9, design: .monospaced))
+            .font(.system(size: 10, design: .monospaced))
         }
         .padding(.vertical, 2)
     }
@@ -224,7 +224,7 @@ struct CardColumnView: View {
                     .foregroundStyle(Color.gray)
                 Spacer()
                 Text(slotTag)
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(themeColor.opacity(0.85))
             }
 
@@ -267,7 +267,7 @@ struct CardColumnView: View {
                         onOpenSettings()
                     } label: {
                         Image(systemName: "plus")
-                            .font(.system(size: 9))
+                            .font(.system(size: 10))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 4)
                             .background(Color.white.opacity(0.04))
@@ -349,7 +349,7 @@ struct CardColumnView: View {
             } else if config.scannedFiles.isEmpty {
                 Text("Brak pasujących plików.")
                     .font(.system(size: 10))
-                    .foregroundStyle(Color.gray.opacity(0.7))
+                    .foregroundStyle(Color.gray.opacity(0.8))
                     .padding(.vertical, 2)
             } else {
                 // Przełącznik: Najnowszy / Wszystkie
@@ -409,9 +409,9 @@ struct CardColumnView: View {
                                         .font(.system(size: 11, weight: isDaySelected ? .bold : .medium))
                                         .foregroundStyle(isDaySelected ? Color.white : Color.gray.opacity(0.8))
 
-                                    Text("\(day.videoCount) wideo, \(day.photoCount) zdjęć\(audioInfo) • \(AppModel.formatBytes(day.totalBytes))")
-                                        .font(.system(size: 9, design: .monospaced))
-                                        .foregroundStyle(isDaySelected ? Color.gray.opacity(0.9) : Color.gray.opacity(0.5))
+                                    Text("\(day.videoCount) wideo, \(PolishPlural.photos(day.photoCount))\(audioInfo) • \(AppModel.formatBytes(day.totalBytes))")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(isDaySelected ? Color.gray.opacity(0.9) : Color.gray.opacity(0.7))
                                 }
                                 Spacer()
                             }
@@ -442,12 +442,12 @@ struct CardColumnView: View {
                 .tint(themeColor)
             HStack {
                 Text(config.currentFile.isEmpty ? "Zgrywanie…" : config.currentFile)
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                     .foregroundStyle(Color.gray)
                     .lineLimit(1)
                 Spacer()
                 Text("\(Int(config.progress * 100))%")
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(themeColor)
             }
         }
@@ -464,7 +464,7 @@ struct CardColumnView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(StudioTheme.accentRed)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Nie zgrano \(report.totalFailed) plików")
+                Text("Nie zgrano: \(PolishPlural.files(report.totalFailed))")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(StudioTheme.accentRed)
                 Text(report.failed.prefix(3).map { $0.url.lastPathComponent }.joined(separator: ", "))

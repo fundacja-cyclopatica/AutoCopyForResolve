@@ -5,6 +5,7 @@ import SDCardOrganizerCore
 struct MainWindow: View {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @State private var isConfirmingHistoryClear = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -132,6 +133,7 @@ struct MainWindow: View {
                     .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut("1", modifiers: .command)
 
                 Button {
                     withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
@@ -147,6 +149,7 @@ struct MainWindow: View {
                         .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut("2", modifiers: .command)
             }
             .padding(2)
             .background(Color.black.opacity(0.55))
@@ -176,6 +179,8 @@ struct MainWindow: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(model.isGlobalCopying)
+                .keyboardShortcut("r", modifiers: .command)
+                .help("Przeskanuj ponownie wszystkie karty (⌘R)")
 
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -197,6 +202,8 @@ struct MainWindow: View {
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(model.isSettingsPanelOpen ? StudioTheme.accentCyan.opacity(0.5) : Color.white.opacity(0.10), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut(",", modifiers: .command)
+                .help("Ustawienia (⌘,)")
             }
             .frame(width: 220, alignment: .trailing)
             .padding(.trailing, 12)
@@ -212,7 +219,7 @@ struct MainWindow: View {
 
     private var topConfigurationBar: some View {
         HStack(alignment: .center, spacing: 14) {
-            // Tytuł, LED dot i badge STUDIO 2.4
+            // Tytuł, wersja i ścieżka, do której trafi materiał
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 7) {
                     Circle()
@@ -224,19 +231,34 @@ struct MainWindow: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(Color.white)
 
-                    Text("STUDIO 2.4")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundStyle(StudioTheme.accentCyan)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(StudioTheme.accentCyan.opacity(0.10))
-                        .cornerRadius(4)
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(StudioTheme.accentCyan.opacity(0.35), lineWidth: 1))
+                    if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                        Text("v\(version)")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(StudioTheme.accentCyan)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(StudioTheme.accentCyan.opacity(0.10))
+                            .cornerRadius(4)
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(StudioTheme.accentCyan.opacity(0.35), lineWidth: 1))
+                    }
                 }
 
-                Text("Zgrywaj materiały z wielu kamer i twórz zintegrowany projekt DaVinci Resolve")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.gray.opacity(0.85))
+                if let preview = model.destinationPreviewPath {
+                    let addsToExisting = FileManager.default.fileExists(atPath: preview)
+                    let prefix = addsToExisting ? "Dogrywanie do" : "Nowy projekt:"
+                    Text("\(prefix) \(preview)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(addsToExisting ? StudioTheme.accentAmber : Color.gray)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(addsToExisting
+                              ? "Folder już istnieje — pliki zgrane wcześniej zostaną pominięte jako duplikaty."
+                              : "Materiał trafi do nowego folderu projektu.")
+                } else {
+                    Text("Zgrywaj materiały z wielu kamer i twórz zintegrowany projekt DaVinci Resolve")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.gray.opacity(0.85))
+                }
             }
 
             Spacer(minLength: 16)
@@ -253,11 +275,35 @@ struct MainWindow: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.gray)
 
-                    TextField("np. Foty", text: $model.projectName)
+                    TextField("np. Wesele Ani", text: $model.projectName)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.white)
-                        .frame(width: 100)
+                        .frame(width: 160)
+
+                    // Lista projektów istniejących na dysku — dogrywanie kolejnych kart
+                    Menu {
+                        if model.existingProjects.isEmpty {
+                            Text("Brak projektów na dysku docelowym")
+                        } else {
+                            Section("Dograj do istniejącego projektu") {
+                                ForEach(model.existingProjects) { project in
+                                    Button(project.folderName) {
+                                        model.selectExistingProject(project)
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.gray)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .disabled(model.isGlobalCopying)
+                    .help("Wybierz istniejący projekt, aby dograć do niego materiał")
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
@@ -280,7 +326,22 @@ struct MainWindow: View {
                         .foregroundStyle(model.settings.destinationRoot.isEmpty ? Color.red.opacity(0.9) : Color.white.opacity(0.9))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .frame(maxWidth: 240, alignment: .leading)
+                        .frame(maxWidth: 200, alignment: .leading)
+
+                    if !model.settings.destinationRoot.isEmpty {
+                        if !model.isDestinationAvailable {
+                            Text("niedostępny")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(StudioTheme.accentRed)
+                                .help("Folder docelowy nie istnieje — podłącz dysk albo wybierz inny folder.")
+                        } else if let free = model.destinationFreeSpace {
+                            let tooSmall = free < model.totalBytesToCopy
+                            Text("wolne \(AppModel.formatBytes(free))")
+                                .font(.system(size: 11, weight: tooSmall ? .semibold : .regular, design: .monospaced))
+                                .foregroundStyle(tooSmall ? StudioTheme.accentRed : Color.gray)
+                                .help(tooSmall ? "Wybrane materiały mogą się nie zmieścić na dysku docelowym." : "Wolne miejsce na dysku docelowym")
+                        }
+                    }
 
                     Button {
                         chooseDestinationQuick()
@@ -370,7 +431,7 @@ struct MainWindow: View {
 
                 Spacer()
 
-                Text(model.isGlobalCopying ? "KOPIOWANIE: \(Int(model.overallProgress * 100))%" : "KONTROLER I/O: GOTOWY")
+                Text(model.isGlobalCopying ? "ZGRYWANIE: \(Int(model.overallProgress * 100))%" : "GOTOWY")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundStyle(model.statusIsError ? StudioTheme.accentRed : StudioTheme.accentGreen.opacity(0.85))
             }
@@ -435,12 +496,12 @@ struct MainWindow: View {
                             Text("Wybrano:")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color.gray)
-                            Text("\(enabledCount) kart(y)")
+                            Text(PolishPlural.cards(enabledCount))
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundStyle(Color.white)
                             Text("•")
                                 .foregroundStyle(Color.white.opacity(0.2))
-                            Text("\(totalFiles) plików")
+                            Text(PolishPlural.files(totalFiles))
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundStyle(Color.white)
                         }
@@ -455,6 +516,13 @@ struct MainWindow: View {
                                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                                 .foregroundStyle(StudioTheme.accentCyan)
                         }
+
+                        // Podpowiedź, czego brakuje do rozpoczęcia zgrywania
+                        if let reason = model.copyBlockedReason {
+                            Text(reason)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(StudioTheme.accentAmber)
+                        }
                     }
 
                     // Główny przycisk akcji (Vibrant Studio Action Button)
@@ -464,7 +532,7 @@ struct MainWindow: View {
                         HStack(spacing: 8) {
                             Image(systemName: "square.and.arrow.down.fill")
                                 .font(.system(size: 13, weight: .bold))
-                            Text(model.totalFilesToCopy == 0 ? "Wybierz materiały" : "Zgraj (\(model.totalFilesToCopy) plików)")
+                            Text(model.totalFilesToCopy == 0 ? "Wybierz materiały" : "Zgraj (\(PolishPlural.files(model.totalFilesToCopy)))")
                                 .font(.system(size: 13, weight: .bold))
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 10, weight: .bold))
@@ -487,8 +555,10 @@ struct MainWindow: View {
                         .shadow(color: StudioTheme.accentCyan.opacity(0.45), radius: 10, x: 0, y: 2)
                     }
                     .buttonStyle(.plain)
-                    .disabled(model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .opacity((model.isGlobalCopying || model.enabledCards.isEmpty || model.totalFilesToCopy == 0 || model.projectName.trimmingCharacters(in: .whitespaces).isEmpty) ? 0.45 : 1.0)
+                    .disabled(model.isGlobalCopying || model.copyBlockedReason != nil)
+                    .opacity((model.isGlobalCopying || model.copyBlockedReason != nil) ? 0.45 : 1.0)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .help(model.copyBlockedReason ?? "Rozpocznij zgrywanie (⌘↩)")
                 }
             }
         }
@@ -556,13 +626,21 @@ struct MainWindow: View {
                     .foregroundStyle(Color.white)
                 Spacer()
                 if !model.history.isEmpty {
-                    Button("Wyczyść historię") {
-                        IngestHistory.clear()
-                        model.history = []
+                    Button("Wyczyść historię…") {
+                        isConfirmingHistoryClear = true
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
+            }
+            .alert("Wyczyścić historię zgrywań?", isPresented: $isConfirmingHistoryClear) {
+                Button("Wyczyść", role: .destructive) {
+                    IngestHistory.clear()
+                    model.history = []
+                }
+                Button("Anuluj", role: .cancel) {}
+            } message: {
+                Text("Usunięta zostanie tylko lista sesji. Zgrane pliki na dysku pozostają bez zmian.")
             }
 
             if model.history.isEmpty {
@@ -570,7 +648,7 @@ struct MainWindow: View {
                 VStack(spacing: 8) {
                     Image(systemName: "clock")
                         .font(.system(size: 40))
-                        .foregroundStyle(Color.gray.opacity(0.5))
+                        .foregroundStyle(Color.gray.opacity(0.7))
                     Text("Brak zapisanych sesji zgrywania.")
                         .font(.headline)
                         .foregroundStyle(Color.gray)
@@ -592,20 +670,42 @@ struct MainWindow: View {
                                         .foregroundStyle(Color.gray)
                                 }
                                 HStack(spacing: 14) {
-                                    Label("\(record.filesCopied) skopiowanych", systemImage: "doc.fill")
+                                    Label("skopiowano \(PolishPlural.files(record.filesCopied))", systemImage: "doc.fill")
                                         .foregroundStyle(StudioTheme.accentCyan)
                                     Label(AppModel.formatBytes(record.totalBytes), systemImage: "internaldrive")
                                         .foregroundStyle(StudioTheme.accentGreen)
-                                    Text("źródła: \(record.sourceVolumeName)")
-                                        .foregroundStyle(Color.gray)
+                                    if record.filesSkipped > 0 {
+                                        Label("pominięto \(record.filesSkipped)", systemImage: "arrow.uturn.right")
+                                            .foregroundStyle(Color.gray)
+                                    }
+                                    if record.filesFailed > 0 {
+                                        Label(PolishPlural.errors(record.filesFailed), systemImage: "exclamationmark.triangle.fill")
+                                            .foregroundStyle(StudioTheme.accentRed)
+                                    }
                                 }
                                 .font(.caption)
 
-                                Text(record.destinationPath)
-                                    .font(.caption2)
-                                    .foregroundStyle(Color.gray.opacity(0.6))
+                                Text("Źródła: \(record.sourceVolumeName)")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.gray)
                                     .lineLimit(1)
-                                    .truncationMode(.middle)
+
+                                HStack {
+                                    Text(record.destinationPath)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.gray.opacity(0.8))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer()
+                                    let folderExists = FileManager.default.fileExists(atPath: record.destinationPath)
+                                    Button("Pokaż w Finderze") {
+                                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: record.destinationPath)])
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(!folderExists)
+                                    .help(folderExists ? "Otwórz folder projektu" : "Folder niedostępny — dysk może być odłączony")
+                                }
                             }
                             .padding(12)
                             .background(StudioTheme.cardBg)
@@ -679,7 +779,7 @@ private struct LaunchToggleButton: View {
         } label: {
             HStack(spacing: 6) {
                 Text(iconText)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundStyle(iconTextColor)
                     .frame(width: 17, height: 17)
                     .background(iconGradient)

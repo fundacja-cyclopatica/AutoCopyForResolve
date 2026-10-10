@@ -24,7 +24,7 @@ struct EmptyCardSlotView: View {
 
             HStack(spacing: 6) {
                 Circle()
-                    .fill(Color.gray.opacity(0.6))
+                    .fill(Color.gray.opacity(0.8))
                     .frame(width: 6, height: 6)
                 Text("Wolny slot czytnika")
                     .font(.caption.bold())
@@ -33,7 +33,7 @@ struct EmptyCardSlotView: View {
 
             Text("Wsuń kolejną kartę SD/CFexpress, aby automatycznie wykryć materiał")
                 .font(.caption2)
-                .foregroundStyle(Color.gray.opacity(0.7))
+                .foregroundStyle(Color.gray.opacity(0.8))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 160)
                 .lineSpacing(2)

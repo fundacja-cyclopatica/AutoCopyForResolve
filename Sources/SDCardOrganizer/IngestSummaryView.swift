@@ -152,14 +152,14 @@ struct IngestSummaryView: View {
                         .foregroundStyle(Color.white.opacity(0.9))
                         .lineLimit(1)
                     Spacer()
-                    Text("\(card.report.totalCopied) skop. • \(card.report.totalSkipped) pomin. • \(card.report.totalFailed) błędów")
+                    Text("\(card.report.totalCopied) skop. • \(card.report.totalSkipped) pomin. • \(PolishPlural.errors(card.report.totalFailed))")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(card.report.totalFailed > 0 ? StudioTheme.accentRed : Color.gray)
                 }
             }
             Text(session.destination.path)
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(Color.gray.opacity(0.7))
+                .foregroundStyle(Color.gray.opacity(0.8))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .padding(.top, 2)

@@ -60,6 +60,16 @@ swift run SDCardOrganizerSelftest
 swift test
 ```
 
+## Praca z projektami
+
+- Pole **Projekt** ma listę projektów istniejących już na dysku docelowym — wybranie
+  projektu (także z innego dnia) dogrywa do niego kolejne karty zamiast tworzyć nowy folder.
+  Pod nazwą aplikacji widać pełną ścieżkę, do której trafi materiał.
+- Obok dysku docelowego widać wolne miejsce (na czerwono, gdy wybrane materiały się nie
+  zmieszczą) albo informację, że dysk jest niedostępny.
+- Gdy przycisk **Zgraj** jest nieaktywny, pod statystykami widać, czego brakuje.
+- Skróty: ⌘↩ zgraj, ⌘R skanuj karty, ⌘, ustawienia, ⌘1 / ⌘2 zakładki, Esc anuluj zgrywanie.
+
 ## Konfiguracja
 
 Ustawienia przechowywane są w pliku:

@@ -31,8 +31,8 @@ public enum StudioTheme {
         }
     }
 
-    /// Zwraca kod techniczny slotu (np. CAM_SLOT_01)
+    /// Etykieta slotu wyświetlana na karcie (np. „Slot 1”)
     public static func slotTag(for index: Int) -> String {
-        String(format: "CAM_SLOT_%02d", index + 1)
+        "Slot \(index + 1)"
     }
 }

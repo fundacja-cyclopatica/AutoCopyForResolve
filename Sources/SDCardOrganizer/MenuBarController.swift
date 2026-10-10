@@ -102,7 +102,7 @@ public final class MenuBarController: NSObject {
 
             for config in model.cardConfigs {
                 let label = config.cameraLabel.isEmpty ? config.volumeName : "\(config.cameraLabel) (\(config.volumeName))"
-                let countText = config.isCopying ? "• zgrywanie…" : "• \(config.filteredFiles.count) plików"
+                let countText = config.isCopying ? "• zgrywanie…" : "• \(PolishPlural.files(config.filteredFiles.count))"
                 let cardItem = NSMenuItem(title: "  💾 \(label) \(countText)", action: nil, keyEquivalent: "")
                 cardItem.isEnabled = false
                 menu.addItem(cardItem)

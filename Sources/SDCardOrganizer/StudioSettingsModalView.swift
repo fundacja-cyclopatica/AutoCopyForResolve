@@ -119,8 +119,8 @@ struct StudioSettingsModalView: View {
             }
 
             Text("Materiały będą zgrywane do podfolderu <data>_<nazwa projektu> na tym dysku.")
-                .font(.system(size: 9))
-                .foregroundStyle(Color.gray.opacity(0.7))
+                .font(.system(size: 10))
+                .foregroundStyle(Color.gray.opacity(0.8))
                 .lineSpacing(2)
         }
     }
@@ -135,7 +135,7 @@ struct StudioSettingsModalView: View {
             HStack {
                 HStack(spacing: 8) {
                     Text("Dv")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(Color.white)
                         .frame(width: 22, height: 22)
                         .background(
@@ -170,7 +170,7 @@ struct StudioSettingsModalView: View {
             HStack {
                 HStack(spacing: 8) {
                     Text("Lr")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(Color(red: 49/255, green: 168/255, blue: 255/255))
                         .frame(width: 22, height: 22)
                         .background(Color(red: 0/255, green: 29/255, blue: 52/255))
@@ -197,8 +197,8 @@ struct StudioSettingsModalView: View {
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.06), lineWidth: 1))
 
             Text("Możesz również włączyć te opcje jednorazowo bezpośrednio przy przycisku zgrywania na dolnym pasku.")
-                .font(.system(size: 9))
-                .foregroundStyle(Color.gray.opacity(0.7))
+                .font(.system(size: 10))
+                .foregroundStyle(Color.gray.opacity(0.8))
                 .lineSpacing(2)
         }
     }
@@ -378,8 +378,8 @@ struct StudioSettingsModalView: View {
             }
 
             Text("Podaj wzorcowy plik .drp wyeksportowany z DaVinci Resolve. Jeśli go nie podasz, utworzymy folder projektu i manifest JSON.")
-                .font(.system(size: 9))
-                .foregroundStyle(Color.gray.opacity(0.7))
+                .font(.system(size: 10))
+                .foregroundStyle(Color.gray.opacity(0.8))
                 .lineSpacing(2)
         }
     }

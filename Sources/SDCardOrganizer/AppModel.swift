@@ -16,6 +16,9 @@ public final class AppModel: ObservableObject {
             if settings.enabledExtensions != oldValue.enabledExtensions, !isGlobalCopying {
                 scanAllCards()
             }
+            if settings.destinationRoot != oldValue.destinationRoot {
+                refreshDestinationInfo()
+            }
         }
     }
 
@@ -23,7 +26,27 @@ public final class AppModel: ObservableObject {
     @Published public var cardConfigs: [CardIngestConfig] = []
 
     /// Globalna nazwa projektu
-    @Published public var projectName: String = ""
+    @Published public var projectName: String = "" {
+        didSet {
+            // Wpisanie nazwy ręcznie oznacza nowy projekt z dzisiejszą datą.
+            if projectName != oldValue {
+                projectDate = nil
+            }
+        }
+    }
+
+    /// Data istniejącego projektu wybranego z listy (dogrywanie do projektu z innego dnia);
+    /// `nil` — projekt z dzisiejszą datą.
+    @Published public private(set) var projectDate: Date?
+
+    /// Projekty istniejące na dysku docelowym, od najnowszego.
+    @Published public private(set) var existingProjects: [ExistingProject] = []
+
+    /// Wolne miejsce na dysku docelowym; `nil`, gdy dysk jest niedostępny lub nie wybrany.
+    @Published public private(set) var destinationFreeSpace: Int64?
+
+    /// Czy wybrany folder docelowy istnieje (dysk jest podłączony).
+    @Published public private(set) var isDestinationAvailable = false
 
     /// Stan globalny zgrywania
     @Published public var isGlobalCopying: Bool = false
@@ -80,6 +103,7 @@ public final class AppModel: ObservableObject {
         self.settingsURL = settingsURL
         self.settings = (try? SettingsStore.load(from: settingsURL)) ?? Settings()
         self.history = IngestHistory.load()
+        refreshDestinationInfo()
 
         // Poproś o uprawnienia do powiadomień
         if Self.notificationsAvailable {
@@ -97,6 +121,72 @@ public final class AppModel: ObservableObject {
 
     private func persistSettings() {
         try? SettingsStore.save(settings, to: settingsURL)
+    }
+
+    // MARK: – Projekt i dysk docelowy
+
+    /// Odświeża listę projektów i wolne miejsce na dysku docelowym.
+    public func refreshDestinationInfo() {
+        let root = settings.destinationRoot
+        var isDirectory: ObjCBool = false
+        isDestinationAvailable = !root.isEmpty
+            && FileManager.default.fileExists(atPath: root, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+        existingProjects = isDestinationAvailable ? ProjectCatalog.projects(in: root) : []
+
+        if isDestinationAvailable {
+            let values = try? URL(fileURLWithPath: root, isDirectory: true).resourceValues(forKeys: [
+                .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey
+            ])
+            let important = values?.volumeAvailableCapacityForImportantUsage
+            let plain = values?.volumeAvailableCapacity.map(Int64.init)
+            destinationFreeSpace = (important != nil || plain != nil) ? max(important ?? 0, plain ?? 0) : nil
+        } else {
+            destinationFreeSpace = nil
+        }
+    }
+
+    /// Dogrywanie do projektu, który już istnieje na dysku (także z innego dnia).
+    public func selectExistingProject(_ project: ExistingProject) {
+        projectName = project.name
+        projectDate = project.date
+    }
+
+    /// Pełna ścieżka folderu, do którego trafi materiał, albo `nil`, gdy brak danych.
+    public var destinationPreviewPath: String? {
+        let name = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !settings.destinationRoot.isEmpty, !name.isEmpty else { return nil }
+        return ProjectLayout(
+            destinationRoot: settings.destinationRoot,
+            projectName: name,
+            date: projectDate ?? Date()
+        ).root.path
+    }
+
+    /// Dlaczego nie można teraz zacząć zgrywania (`nil` — można).
+    public var copyBlockedReason: String? {
+        if cardConfigs.isEmpty {
+            return "Włóż kartę lub dodaj folder ze źródłem."
+        }
+        if enabledCards.isEmpty {
+            return "Włącz co najmniej jedną kartę."
+        }
+        if enabledCards.contains(where: \.isScanning) {
+            return "Trwa skanowanie kart…"
+        }
+        if totalFilesToCopy == 0 {
+            return "Zaznacz dni i typy materiałów do zgrania."
+        }
+        if settings.destinationRoot.isEmpty {
+            return "Wybierz dysk docelowy."
+        }
+        if !isDestinationAvailable {
+            return "Dysk docelowy jest niedostępny — podłącz go."
+        }
+        if projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Wpisz nazwę projektu."
+        }
+        return nil
     }
 
     // MARK: – Właściwości wyliczeniowe dla wszystkich kart
@@ -197,6 +287,8 @@ public final class AppModel: ObservableObject {
         let currentIDs = Set(volumes.map(\.id))
         let newIDs = currentIDs.subtracting(knownVolumeIDs)
         knownVolumeIDs = currentIDs
+        // Dysk docelowy mógł zostać podłączony lub odłączony.
+        refreshDestinationInfo()
         let isInitialLoad = !hasHandledInitialVolumes
         hasHandledInitialVolumes = true
 
@@ -255,6 +347,7 @@ public final class AppModel: ObservableObject {
 
     /// Pokazuje okno główne — również wtedy, gdy użytkownik je wcześniej zamknął.
     public func showMainWindow(openingSettings: Bool = false) {
+        refreshDestinationInfo()
         if openingSettings {
             isSettingsPanelOpen = true
         }
@@ -390,6 +483,7 @@ public final class AppModel: ObservableObject {
         let totalBytesAllCards = filesToCopy.reduce(Int64(0)) { $0 + $1.size }
         let cancellation = CancellationToken()
         let settings = self.settings
+        let projectDate = self.projectDate ?? Date()
 
         isGlobalCopying = true
         overallProgress = 0
@@ -404,7 +498,7 @@ public final class AppModel: ObservableObject {
             let startedAt = Date()
             do {
                 let builder = ProjectBuilder(settings: settings)
-                let layout = try builder.build(projectName: name)
+                let layout = try builder.build(projectName: name, date: projectDate)
 
                 var results: [IngestSessionSummary.CardResult] = []
                 var processedBefore: Int64 = 0
@@ -534,7 +628,8 @@ public final class AppModel: ObservableObject {
             }
         }
 
-        var message = "Zgrano \(session.totalCopied) plików (\(AppModel.formatBytes(session.totalBytes))) z \(session.cards.count) kart."
+        var message = "Zgrano \(PolishPlural.files(session.totalCopied)) (\(AppModel.formatBytes(session.totalBytes))) "
+            + "z \(PolishPlural.format(session.cards.count, one: "karty", few: "kart", many: "kart"))."
         if session.wasCancelled {
             message = "Zgrywanie anulowane. " + message
         }
@@ -556,21 +651,23 @@ public final class AppModel: ObservableObject {
             self.history = IngestHistory.load()
             self.setStatus(message, isError: failedCount > 0 || session.wasCancelled)
             self.lastSession = session
+            self.refreshDestinationInfo()
 
             if session.wasCancelled {
                 self.sendNotification(
                     title: "Zgrywanie anulowane",
-                    body: "Projekt „\(session.projectName)”: zgrano \(session.totalCopied) plików przed przerwaniem."
+                    body: "Projekt „\(session.projectName)”: zgrano \(PolishPlural.files(session.totalCopied)) przed przerwaniem."
                 )
             } else if failedCount > 0 {
                 self.sendNotification(
                     title: "Zgrywanie zakończone z błędami",
-                    body: "Projekt „\(session.projectName)”: \(failedCount) plików nie zostało zgranych. Nie formatuj kart przed sprawdzeniem."
+                    body: "Projekt „\(session.projectName)”: nie zgrano \(PolishPlural.files(failedCount)). Nie formatuj kart przed sprawdzeniem."
                 )
             } else {
                 self.sendNotification(
                     title: "Zgrywanie zakończone pomyślnie",
-                    body: "Projekt „\(session.projectName)”: zgrano \(session.totalCopied) plików z \(session.cards.count) kart."
+                    body: "Projekt „\(session.projectName)”: zgrano \(PolishPlural.files(session.totalCopied)) "
+                        + "z \(PolishPlural.format(session.cards.count, one: "karty", few: "kart", many: "kart"))."
                 )
             }
         }
