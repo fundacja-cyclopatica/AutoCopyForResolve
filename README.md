@@ -5,13 +5,20 @@ na wybrany dysk oraz przygotowania struktury katalogów i projektu DaVinci Resol
 
 ## Działanie
 
-1. Aplikacja działa w tle (ikona w pasku menu).
-2. Po włożeniu karty SD do czytnika wykrywa nośnik i pokazuje go w oknie/pasku menu.
-3. Po kliknięciu **„Zgraj"** aplikacja:
-   - pyta o nazwę projektu,
-   - skanuje kartę pod kątem wybranych typów plików,
-   - kopiuje materiały z pomijaniem duplikatów,
-   - tworzy strukturę katalogów i plik projektu DaVinci Resolve.
+1. Aplikacja działa w tle — jej ikona (karta SD) jest w pasku menu przy zegarze.
+2. Kliknięcie ikony wysuwa z prawej strony ekranu **panel** (jak widget) z podłączonymi
+   kartami. Panel:
+   - dopasowuje wysokość do liczby kart i płynnie się rozszerza po włożeniu kolejnej,
+   - jest zawsze na wierzchu (także nad aplikacjami na pełnym ekranie i na każdym biurku),
+   - nie znika po kliknięciu obok — chowa go przycisk **Zamknij**, klawisz Esc albo ponowne
+     kliknięcie ikony,
+   - przy większej liczbie kart niż mieści ekran przewija listę kart.
+3. Włożenie karty automatycznie wysuwa panel i skanuje kartę.
+4. W panelu wybierasz zakres dni, typy materiałów, podpis kamery, dysk docelowy i nazwę
+   projektu, a **Szybki zrzut** zgrywa materiał (z weryfikacją, postępem i możliwością
+   anulowania).
+5. Pełne okno (przycisk w panelu lub prawy klik na ikonie → „Otwórz okno główne”) zawiera
+   widok kolumn, historię zgrań i szczegółowe ustawienia.
 
 ## Struktura katalogów
 

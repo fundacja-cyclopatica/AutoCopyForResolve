@@ -80,6 +80,15 @@ struct MainWindow: View {
                 openWindow(id: AppModel.mainWindowID)
             }
         }
+        // Przy starcie aplikacji główną formą pracy jest panel z paska menu —
+        // okno otwierane automatycznie przez SwiftUI od razu chowamy.
+        .background(WindowAccessor { window in
+            guard model.hidesMainWindowAtLaunch else { return }
+            model.hidesMainWindowAtLaunch = false
+            DispatchQueue.main.async {
+                window.close()
+            }
+        })
         .alert("Zmień nazwę karty", isPresented: Binding(
             get: { model.renamingCardURL != nil },
             set: { if !$0 { model.renamingCardURL = nil } }
@@ -843,5 +852,38 @@ private struct LaunchToggleButton: View {
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.25, dampingFraction: 0.85), value: isOn)
+    }
+}
+
+// MARK: – Dostęp do NSWindow
+
+/// Przekazuje okno, w którym znalazł się widok (jednorazowo po dołączeniu do okna).
+private struct WindowAccessor: NSViewRepresentable {
+    let onWindow: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        WindowObservingView(onWindow: onWindow)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class WindowObservingView: NSView {
+        let onWindow: (NSWindow) -> Void
+
+        init(onWindow: @escaping (NSWindow) -> Void) {
+            self.onWindow = onWindow
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) is not supported")
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window {
+                onWindow(window)
+            }
+        }
     }
 }

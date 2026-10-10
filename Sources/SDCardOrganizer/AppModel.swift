@@ -88,6 +88,12 @@ public final class AppModel: ObservableObject {
     /// w środowisku SwiftUI, a okno trzeba umieć otworzyć ponownie także po jego zamknięciu.
     public var openMainWindowAction: (() -> Void)?
 
+    /// Pokazuje wysuwany panel z paska menu (ustawiane przez `MenuBarController`).
+    public var showPanelAction: (() -> Void)?
+
+    /// Czy okno główne ma się schować przy starcie aplikacji — główną formą pracy jest panel.
+    public var hidesMainWindowAtLaunch = true
+
     /// Maksymalna liczba źródeł (kart i ręcznie dodanych folderów) wyświetlanych obok siebie.
     public static let maxCards = 4
 
@@ -144,6 +150,12 @@ public final class AppModel: ObservableObject {
         } else {
             destinationFreeSpace = nil
         }
+    }
+
+    /// Nazwa wolumenu, na którym leży folder docelowy (np. „MONTAŻ SSD”).
+    public var destinationVolumeName: String? {
+        guard isDestinationAvailable else { return nil }
+        return (try? URL(fileURLWithPath: settings.destinationRoot).resourceValues(forKeys: [.volumeNameKey]))?.volumeName
     }
 
     /// Dogrywanie do projektu, który już istnieje na dysku (także z innego dnia).
@@ -339,9 +351,13 @@ public final class AppModel: ObservableObject {
                 : "Karty \(names) są gotowe do zgrywania."
         )
 
-        // Automatycznie otwórz i wysuń okno aplikacji na pierwszy plan (pop-up)
+        // Automatycznie wysuń panel z paska menu (albo okno, gdy panelu nie ma)
         DispatchQueue.main.async {
-            self.showMainWindow()
+            if let showPanel = self.showPanelAction {
+                showPanel()
+            } else {
+                self.showMainWindow()
+            }
         }
     }
 

@@ -4,18 +4,33 @@ import Combine
 import SDCardOrganizerCore
 
 /// Kontroler ikony w pasku menu systemowym (NSStatusItem).
-/// - Lewy przycisk myszy: natychmiastowe otwarcie okna głównego
-/// - Prawy przycisk myszy: menu podręczne (status kart, ustawienia, zakończenie)
+/// - Lewy przycisk myszy: wysuwa / chowa panel z kartami (jak widget)
+/// - Prawy przycisk myszy: menu podręczne (status kart, okno główne, ustawienia, zakończenie)
 public final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem!
     private let model: AppModel
     private var cancellables = Set<AnyCancellable>()
+    private var panelController: StatusPanelController!
 
     public init(model: AppModel) {
         self.model = model
         super.init()
         setupStatusItem()
+        panelController = StatusPanelController(model: model) { [weak self] in
+            self?.statusItem.button?.window?.screen
+        }
+        panelController.onVisibilityChange = { [weak self] _ in
+            self?.updateButton()
+        }
+        model.showPanelAction = { [weak self] in
+            self?.panelController.show()
+        }
         observeModel()
+
+        // Po uruchomieniu od razu pokaż panel — to główny widok aplikacji.
+        DispatchQueue.main.async { [weak self] in
+            self?.panelController.show()
+        }
     }
 
     private func setupStatusItem() {
@@ -45,15 +60,20 @@ public final class MenuBarController: NSObject {
 
     private func updateButton() {
         guard let button = statusItem.button else { return }
+        button.highlight(panelController?.isVisible ?? false)
 
         if model.isGlobalCopying {
             button.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath.circle.fill", accessibilityDescription: "Zgrywanie")
             button.title = " \(Int(model.overallProgress * 100))%"
         } else {
-            let symbolName = model.cardConfigs.isEmpty ? "externaldrive" : "externaldrive.fill.badge.checkmark"
+            let symbolName = model.cardConfigs.isEmpty ? "sdcard" : "sdcard.fill"
             button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "SD Organizer")
             button.title = ""
         }
+        // Musztardowa ikona, gdy są karty do zgrania (jak w projekcie panelu)
+        button.contentTintColor = model.cardConfigs.isEmpty
+            ? nil
+            : NSColor(red: 249/255, green: 169/255, blue: 2/255, alpha: 1)
     }
 
     @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton) {
@@ -70,8 +90,8 @@ public final class MenuBarController: NSObject {
                 self.statusItem.menu = nil
             }
         } else {
-            // Lewy przycisk -> Natychmiastowe otwarcie okna głównego
-            openMainWindow()
+            // Lewy przycisk -> wysuń / schowaj panel
+            panelController.toggle()
         }
     }
 
